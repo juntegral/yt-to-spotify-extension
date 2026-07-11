@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>디자인 v3 (플랫) — YouTube → Spotify</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" />
+<style>
+  :root{
+    --bg:#000; --s1:#121212; --s2:#181818; --s3:#242424; --hover:#2a2a2a;
+    --green:#1ed760; --green-press:#19b84c;
+    --t1:#fff; --t2:#b3b3b3; --t3:#6a6a6a;
+    --review:#e8a33d; --miss:#e4586a; --line:#2a2a2a;
+    --font:'Pretendard','Apple SD Gothic Neo','Noto Sans JP','Malgun Gothic',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--font);color:var(--t1);background:var(--bg);padding:42px 26px 80px;-webkit-font-smoothing:antialiased}
+  .canvas{display:flex;gap:34px;align-items:flex-start;justify-content:center;flex-wrap:wrap}
+  .stage{display:flex;flex-direction:column;gap:12px}
+  .cap{font-size:11px;font-weight:700;letter-spacing:1.3px;color:var(--t3);text-transform:uppercase;padding-left:2px}
+
+  .mark{width:32px;height:32px;border-radius:8px;background:var(--green);flex-shrink:0;display:grid;place-items:center}
+  .mark svg{width:18px;height:18px}
+  .brand{display:flex;align-items:center;gap:11px}
+  .brand h1{font-size:15px;font-weight:800;letter-spacing:-.3px}
+  .brand .sub{font-size:11px;color:var(--t3);margin-top:2px;font-weight:500}
+  .eyebrow{font-size:10.5px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase;color:var(--t3)}
+
+  .panel{background:var(--s2);border:1px solid var(--line);border-radius:12px}
+  .pad{padding:18px}
+
+  .pill{border:none;font-family:var(--font);font-weight:800;border-radius:999px;cursor:pointer;transition:background .12s,filter .12s;white-space:nowrap}
+  .pill.green{background:var(--green);color:#000}
+  .pill.green:hover{background:var(--green-press)}
+  .pill.ghost{background:transparent;border:1px solid #535353;color:var(--t1)}
+  .pill.ghost:hover{border-color:var(--t1)}
+  .pill.soft{background:var(--s3);color:var(--t2)}
+  .pill.soft:hover{color:var(--t1);background:var(--hover)}
+  .pill.xs{padding:6px 13px;font-size:11px}
+  .pill.block{display:block;width:100%;padding:13px;font-size:14px;text-align:center}
+
+  .art{border-radius:5px;flex-shrink:0;background:var(--s3)}
+  .art.a{background:#5b4aa0} .art.b{background:#1a8a5c} .art.c{background:#a24356} .art.d{background:#3a5f96} .art.e{background:#a8842f}
+
+  .vid{display:flex;gap:12px}
+  .vthumb{width:100px;height:58px;border-radius:6px;flex-shrink:0;background:#16233d}
+  .vmeta{min-width:0;align-self:center}
+  .vtitle{font-size:12.5px;font-weight:700;line-height:1.38;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .vsub{font-size:11px;color:var(--t2);margin-top:5px}
+
+  .connect{display:flex;align-items:center;justify-content:space-between;margin-top:13px;padding:11px 13px;border-radius:8px;background:var(--s1);border:1px solid var(--line)}
+  .connect .l1{font-size:12.5px;font-weight:700}
+  .connect .l2{font-size:11px;color:var(--green);margin-top:2px;display:flex;align-items:center;gap:6px}
+  .cdot{width:6px;height:6px;border-radius:50%;background:var(--green)}
+
+  .tl{margin-top:9px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .tlr{display:flex;align-items:center;gap:11px;padding:8px 12px}
+  .tlr+.tlr{border-top:1px solid var(--line)}
+  .tln{font-size:10.5px;color:var(--t3);width:14px;text-align:right}
+  .tlt{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tla{font-size:10.5px;color:var(--t2);margin-top:1px}
+  .tlb{min-width:0;flex:1}
+
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:15px}
+  .stat{padding:14px 8px;text-align:center;border-radius:8px;background:var(--s1);border:1px solid var(--line)}
+  .stat b{font-size:24px;font-weight:800;letter-spacing:-.5px;line-height:1}
+  .stat span{display:block;font-size:10.5px;color:var(--t2);margin-top:6px;font-weight:600}
+  .stat.g b{color:var(--green)} .stat.a b{color:var(--review)} .stat.r b{color:var(--miss)}
+
+  .open{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:11px;padding:13px;border-radius:999px;background:var(--green);color:#000;font-size:13.5px;font-weight:800;text-decoration:none;transition:background .12s}
+  .open:hover{background:var(--green-press)}
+
+  .sec{display:flex;align-items:center;gap:9px;margin:24px 2px 11px}
+  .sec .tag{font-size:11px;font-weight:800;letter-spacing:.3px}
+  .sec .tag.a{color:var(--review)} .sec .tag.r{color:var(--miss)}
+  .sec .h{font-size:11px;color:var(--t3)}
+
+  .ri{border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:11px;background:var(--s2)}
+  .rsrc{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .rk{font-size:9.5px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:var(--t3);display:flex;align-items:center;gap:6px}
+  .rk .yt{width:15px;height:11px;border-radius:2px;background:#e0342c;display:inline-grid;place-items:center}
+  .rk .yt::after{content:'';border-left:5px solid #fff;border-top:3px solid transparent;border-bottom:3px solid transparent;margin-left:1px}
+  .rv{font-size:14px;font-weight:700;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rtime{font-size:11px;color:var(--t3);flex-shrink:0}
+
+  .chead{font-size:9.5px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:var(--t3);margin:13px 0 3px}
+  .cand{display:flex;align-items:center;gap:11px;padding:8px;border-radius:8px;cursor:pointer;transition:background .12s}
+  .cand:hover{background:var(--hover)}
+  .cand .art{width:44px;height:44px}
+  .ci{min-width:0;flex:1}
+  .cn{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cs{font-size:11px;color:var(--t2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cd{font-size:11px;color:var(--t3);flex-shrink:0}
+
+  .embed{display:flex;align-items:center;gap:12px;background:var(--s3);border-radius:8px;padding:11px 13px;margin:7px 2px 2px}
+  .embed .art{width:46px;height:46px}
+  .embed .ei{flex:1;min-width:0}
+  .embed .en{font-size:12.5px;font-weight:700}
+  .embed .ea{font-size:11px;color:var(--t2)}
+  .wave{display:flex;align-items:flex-end;gap:2px;height:13px;margin-top:6px}
+  .wave i{width:2.5px;border-radius:1px;background:var(--green);opacity:.85;animation:eq 1.1s ease-in-out infinite}
+  @keyframes eq{0%,100%{height:3px}50%{height:12px}}
+  .play{width:34px;height:34px;border-radius:50%;background:var(--green);display:grid;place-items:center;flex-shrink:0}
+  .play svg{width:13px;height:13px;margin-left:2px}
+
+  .search{display:flex;gap:8px;margin-top:12px}
+  .search input{flex:1;background:var(--s3);border:1px solid #333;border-radius:999px;color:var(--t1);font-family:var(--font);font-size:12px;padding:9px 15px;outline:none}
+  .search input::placeholder{color:var(--t3)}
+  .ract{margin-top:10px}
+  .foot{text-align:center;font-size:11px;color:var(--t3);margin-top:20px}
+  .addedbar{display:flex;align-items:center;gap:10px;margin-top:13px;padding:11px 13px;border-radius:8px;background:var(--s1);border:1px solid var(--line)}
+  .addedbar .arts{display:flex}
+  .addedbar .arts .art{width:26px;height:26px;border-radius:4px;margin-left:-7px;box-shadow:0 0 0 2px var(--s1)}
+  .addedbar .arts .art:first-child{margin-left:0}
+  .addedbar .txt{font-size:12px;color:var(--t2);flex:1}
+  .addedbar .txt b{color:var(--t1)}
+</style>
+</head>
+<body>
+  <div class="canvas">
+
+    <!-- POPUP 시작 -->
+    <div class="stage">
+      <div class="cap">팝업 · 시작</div>
+      <div class="panel" style="width:352px"><div class="pad">
+        <div class="brand">
+          <div class="mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3l2.1 6.1L20.5 9l-5 3.8 1.9 6.2-5.4-3.7-5.4 3.7 1.9-6.2-5-3.8 6.4.1z" fill="#000"/></svg></div>
+          <div><h1>YouTube → Spotify</h1><div class="sub">노래 모음 영상을 재생목록으로</div></div>
+        </div>
+        <div style="margin-top:17px" class="eyebrow">감지된 영상</div>
+        <div style="margin-top:9px" class="vid">
+          <div class="vthumb"></div>
+          <div class="vmeta"><div class="vtitle">별이 쏟아진 날 · 새벽에 듣기좋은 잔잔한 우타이테/일본노래 모음</div><div class="vsub">노른자 · 16곡</div></div>
+        </div>
+        <div class="connect">
+          <div><div class="l1">Spotify</div><div class="l2"><span class="cdot"></span>연결됨 · ACAね</div></div>
+          <button class="pill ghost xs">해제</button>
+        </div>
+        <div style="margin-top:15px" class="eyebrow">트랙리스트</div>
+        <div class="tl">
+          <div class="tlr"><span class="tln">1</span><div class="tlb"><div class="tlt">베텔게우스</div><div class="tla">유우리</div></div></div>
+          <div class="tlr"><span class="tln">2</span><div class="tlb"><div class="tlt">달이 아름다워</div><div class="tla">KK</div></div></div>
+          <div class="tlr"><span class="tln">3</span><div class="tlb"><div class="tlt">Sparkle</div><div class="tla">RADWIMPS</div></div></div>
+        </div>
+        <button style="margin-top:15px" class="pill green block">재생목록으로 변환</button>
+      </div></div>
+    </div>
+
+    <!-- POPUP 검토 -->
+    <div class="stage">
+      <div class="cap">팝업 · 검토</div>
+      <div class="panel" style="width:352px"><div class="pad">
+        <div class="brand">
+          <div class="mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3l2.1 6.1L20.5 9l-5 3.8 1.9 6.2-5.4-3.7-5.4 3.7 1.9-6.2-5-3.8 6.4.1z" fill="#000"/></svg></div>
+          <div><h1>변환 완료</h1><div class="sub">자동 6 · 확인 5 · 못찾음 5</div></div>
+        </div>
+        <div class="addedbar">
+          <div class="arts"><span class="art b"></span><span class="art d"></span><span class="art e"></span></div>
+          <div class="txt"><b>6곡</b> 추가됨</div>
+          <a class="pill green xs" href="#">열기</a>
+        </div>
+        <div class="sec"><span class="tag a">확인 필요 5</span><span class="h">탭하면 미리듣기</span></div>
+        <div class="ri">
+          <div class="rsrc"><div style="min-width:0"><div class="rk"><span class="yt"></span>YouTube 원본</div><div class="rv">월피스카터 — 그것이 당신의 행복이라 할지라도</div></div><div class="rtime">18:33</div></div>
+          <div class="chead">Spotify 후보</div>
+          <div class="cand"><div class="art a"></div><div class="ci"><div class="cn">それがあなたの幸せとしても</div><div class="cs">Heavenz · 2014</div></div><span class="cd">4:28</span></div>
+          <div class="embed">
+            <div class="art a"></div>
+            <div class="ei"><div class="en">それがあなたの幸せとしても</div><div class="ea">Heavenz</div><div class="wave"><i></i><i style="animation-delay:.2s"></i><i style="animation-delay:.1s"></i><i style="animation-delay:.3s"></i><i style="animation-delay:.15s"></i></div></div>
+            <div class="play"><svg viewBox="0 0 24 24" fill="#000"><path d="M8 5v14l11-7z"/></svg></div>
+          </div>
+          <div class="ract"><button class="pill soft xs">건너뛰기</button></div>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- 전용 탭 -->
+    <div class="stage">
+      <div class="cap">변환 결과 · 전용 탭</div>
+      <div class="panel" style="width:540px"><div class="pad" style="padding:22px">
+        <div class="brand">
+          <div class="mark" style="width:38px;height:38px;border-radius:9px"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3l2.1 6.1L20.5 9l-5 3.8 1.9 6.2-5.4-3.7-5.4 3.7 1.9-6.2-5-3.8 6.4.1z" fill="#000"/></svg></div>
+          <div><h1 style="font-size:17px">변환 완료</h1><div class="sub">별이 쏟아진 날 · 우타이테/일본노래 모음</div></div>
+        </div>
+        <div class="stats">
+          <div class="stat g"><b>6</b><span>자동 추가</span></div>
+          <div class="stat a"><b>5</b><span>확인 필요</span></div>
+          <div class="stat r"><b>5</b><span>못 찾음</span></div>
+        </div>
+        <a class="open" href="#"><svg width="16" height="16" viewBox="0 0 24 24" fill="#000"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm4.6 14.4a.6.6 0 01-.86.2c-2.35-1.44-5.3-1.76-8.8-.96a.62.62 0 11-.28-1.2c3.83-.88 7.1-.5 9.74 1.1a.6.6 0 01.2.86z"/></svg>Spotify에서 재생목록 열기</a>
+
+        <div class="sec"><span class="tag a">확인 필요</span><span class="h">후보를 탭하면 미리듣기 · 맞는 곡에 추가</span></div>
+        <div class="ri">
+          <div class="rsrc"><div style="min-width:0"><div class="rk"><span class="yt"></span>YouTube 원본</div><div class="rv">RADWIMPS — Sparkle</div></div><div class="rtime">08:33</div></div>
+          <div class="chead">Spotify 후보 4개</div>
+          <div class="cand"><div class="art b"></div><div class="ci"><div class="cn">Sparkle - Original Version</div><div class="cs">RADWIMPS · Human Bloom · 2016</div></div><span class="cd">6:50</span></div>
+          <div class="embed">
+            <div class="art b"></div>
+            <div class="ei"><div class="en">Sparkle - Original Version</div><div class="ea">RADWIMPS · Human Bloom</div><div class="wave"><i></i><i style="animation-delay:.2s"></i><i style="animation-delay:.1s"></i><i style="animation-delay:.3s"></i><i style="animation-delay:.15s"></i><i style="animation-delay:.05s"></i></div></div>
+            <div class="play"><svg viewBox="0 0 24 24" fill="#000"><path d="M8 5v14l11-7z"/></svg></div>
+          </div>
+          <div class="cand"><div class="art d"></div><div class="ci"><div class="cn">Is There Still Anything That Love Can Do?</div><div class="cs">RADWIMPS · Weathering With You · 2019</div></div><span class="cd">6:54</span></div>
+          <div class="search"><input placeholder="Spotify에서 직접 검색…" /><button class="pill green xs">검색</button></div>
+          <div class="ract"><button class="pill soft xs">건너뛰기</button></div>
+        </div>
+
+        <div class="sec"><span class="tag r">못 찾음</span><span class="h">직접 검색해서 추가하거나 건너뛰기</span></div>
+        <div class="ri">
+          <div class="rsrc"><div style="min-width:0"><div class="rk"><span class="yt"></span>YouTube 원본</div><div class="rv">월피스카터 — 이별만이 인생이다</div></div><div class="rtime">13:18</div></div>
+          <div class="search"><input value="wotaku 이별" style="color:var(--t1)" /><button class="pill green xs">검색</button></div>
+          <div class="cand" style="margin-top:8px"><div class="art c"></div><div class="ci"><div class="cn">別れのみが人生だ</div><div class="cs">ヲタみん · covers · 2020</div></div><span class="cd">5:12</span></div>
+          <div class="ract"><button class="pill soft xs">건너뛰기</button></div>
+        </div>
+        <div class="foot">모든 곡을 처리하면 완료 · 언제든 다시 열 수 있어요</div>
+      </div></div>
+    </div>
+
+  </div>
+</body>
+</html>
