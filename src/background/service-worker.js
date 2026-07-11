@@ -351,10 +351,10 @@ async function runConvert(video) {
   const desc = video.url ? `YouTube에서 변환: ${video.url}` : 'YouTube 노래 모음에서 변환';
   const pl = await apiPost('/me/playlists', { name, description: desc.slice(0, 300), public: false });
 
-  // 3) 자동 매칭 곡 추가 (100개 배치)
+  // 3) 자동 매칭 곡 추가 (100개 배치) — 2026-02 이관: /tracks → /items
   const uris = auto.map((a) => a.track.uri);
   for (let i = 0; i < uris.length; i += 100) {
-    await apiPost(`/playlists/${pl.id}/tracks`, { uris: uris.slice(i, i + 100) });
+    await apiPost(`/playlists/${pl.id}/items`, { uris: uris.slice(i, i + 100) });
   }
 
   await patchState({
@@ -386,7 +386,7 @@ async function resolveReview(itemId, uri) {
   if (!item) throw new Error('항목을 찾을 수 없습니다');
 
   if (uri) {
-    await apiPost(`/playlists/${st.playlistId}/tracks`, { uris: [uri] });
+    await apiPost(`/playlists/${st.playlistId}/items`, { uris: [uri] }); // 2026-02 이관
     st.added.push({ ...item, resolvedUri: uri });
   }
   st.review = (st.review || []).filter((x) => x.id !== itemId);
