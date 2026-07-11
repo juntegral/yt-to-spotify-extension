@@ -71,6 +71,7 @@ async function connectSpotify() {
     client_id: SPOTIFY.clientId, response_type: 'code', redirect_uri: redirectUri,
     code_challenge_method: 'S256', code_challenge: challenge,
     scope: SPOTIFY.scopes.join(' '), state,
+    show_dialog: 'true', // 재연결 시 동의 화면 강제 → 스코프 갱신 보장
   }).toString();
 
   const resp = await chrome.identity.launchWebAuthFlow({ url: authUrl.toString(), interactive: true });
@@ -146,7 +147,14 @@ async function apiFetch(path, init, attempt) {
     await sleep(wait);
     return apiFetch(path, init, attempt + 1);
   }
-  if (!res.ok) throw new Error(`Spotify API ${path.split('?')[0]} 실패: ${res.status}`);
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const j = await res.json();
+      detail = (j && j.error && (j.error.message || JSON.stringify(j.error))) || '';
+    } catch (e) { try { detail = (await res.text()).slice(0, 200); } catch (e2) { /* noop */ } }
+    throw new Error(`Spotify API ${path.split('?')[0]} 실패: ${res.status}${detail ? ' — ' + detail : ''}`);
+  }
   return res.status === 201 || res.status === 200 ? res.json() : null;
 }
 const apiGet = (p) => apiFetch(p);
