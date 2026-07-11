@@ -324,10 +324,10 @@ async function runConvert(video) {
   }
 
   // 2) 재생목록 생성 (이름 = 영상 제목, 중복 시 " (2)")
-  const me = await apiGet('/me');
+  // 2026-02 Spotify API 이관: POST /users/{id}/playlists → 403, POST /me/playlists 사용
   const name = await uniquePlaylistName(video.title);
   const desc = video.url ? `YouTube에서 변환: ${video.url}` : 'YouTube 노래 모음에서 변환';
-  const pl = await apiPost(`/users/${me.id}/playlists`, { name, description: desc.slice(0, 300), public: false });
+  const pl = await apiPost('/me/playlists', { name, description: desc.slice(0, 300), public: false });
 
   // 3) 자동 매칭 곡 추가 (100개 배치)
   const uris = auto.map((a) => a.track.uri);
