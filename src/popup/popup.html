@@ -6,132 +6,92 @@
   <title>YouTube → Spotify 변환기</title>
   <style>
     :root {
-      --bg: #121212;
-      --surface: #181818;
-      --surface-2: #242424;
-      --surface-hover: #2a2a2a;
-      --green: #1ed760;
-      --green-press: #1db954;
-      --text: #ffffff;
-      --muted: #b3b3b3;
-      --amber: #f0b232;
-      --radius: 8px;
+      --bg: #121212; --surface: #181818; --surface-2: #242424; --surface-hover: #2a2a2a;
+      --green: #1ed760; --green-press: #1db954;
+      --text: #ffffff; --muted: #b3b3b3; --amber: #f0b232; --radius: 8px;
     }
-
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
     html { background: #000; }
-
     body {
-      width: 380px;
-      margin: 0 auto;
-      background: var(--bg);
-      color: var(--text);
+      width: 380px; margin: 0 auto; background: var(--bg); color: var(--text);
       font-family: 'Circular Std', 'Circular', 'Helvetica Neue', Helvetica, Arial,
         'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
       -webkit-font-smoothing: antialiased;
     }
-
     .app { padding: 16px 16px 20px; }
 
-    /* Header */
     .header { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
     .badge {
-      width: 34px; height: 34px; border-radius: 50%;
-      background: var(--green);
+      width: 34px; height: 34px; border-radius: 50%; background: var(--green);
       display: flex; align-items: center; justify-content: center;
       color: #000; font-weight: 800; font-size: 16px; flex-shrink: 0;
     }
     .header h1 { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
     .header p { font-size: 11px; color: var(--muted); margin-top: 1px; }
 
-    /* Section label */
     .label {
       font-size: 11px; font-weight: 700; text-transform: uppercase;
       letter-spacing: 1.2px; color: var(--muted); margin: 0 2px 8px;
     }
 
-    /* Video card */
-    .card {
-      background: var(--surface); border-radius: var(--radius);
-      padding: 12px; margin-bottom: 16px;
-    }
+    .card { background: var(--surface); border-radius: var(--radius); padding: 12px; margin-bottom: 16px; }
     .video { display: flex; gap: 12px; }
     .thumb {
-      width: 96px; height: 54px; border-radius: 6px; flex-shrink: 0;
-      background: var(--surface-2);
-      display: flex; align-items: center; justify-content: center;
+      width: 96px; height: 54px; border-radius: 6px; flex-shrink: 0; overflow: hidden;
+      background: var(--surface-2); display: flex; align-items: center; justify-content: center;
     }
     .thumb svg { width: 26px; height: 26px; opacity: 0.5; }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; }
     .video-meta { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
     .video-title {
       font-size: 13px; font-weight: 600; line-height: 1.35;
-      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-      overflow: hidden;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
     }
     .video-channel { font-size: 11px; color: var(--muted); margin-top: 4px; }
 
-    /* Spotify connect row */
     .connect {
       display: flex; align-items: center; justify-content: space-between;
-      background: var(--surface); border-radius: var(--radius);
-      padding: 12px 14px; margin-bottom: 16px;
+      background: var(--surface); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 16px;
     }
     .connect-left { display: flex; flex-direction: column; }
     .connect-left span:first-child { font-size: 13px; font-weight: 600; }
     .connect-status { font-size: 11px; color: var(--muted); margin-top: 2px; }
     .connect-status.on { color: var(--green); }
 
-    /* Buttons */
     .btn {
-      font-family: inherit; border: none; cursor: pointer;
-      font-weight: 700; border-radius: 500px;
+      font-family: inherit; border: none; cursor: pointer; font-weight: 700; border-radius: 500px;
       transition: transform 0.1s ease, background 0.2s ease, filter 0.2s ease;
     }
     .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.6; cursor: default; }
     .btn-sm { padding: 8px 18px; font-size: 12px; }
     .btn-green { background: var(--green); color: #000; }
     .btn-green:hover { background: #1fdf64; transform: scale(1.03); }
-    .btn-outline {
-      background: transparent; color: var(--text);
-      border: 1px solid #535353; padding: 7px 17px; font-size: 12px;
-    }
+    .btn-outline { background: transparent; color: var(--text); border: 1px solid #535353; padding: 7px 17px; font-size: 12px; }
     .btn-outline:hover { border-color: var(--text); transform: scale(1.03); }
 
-    /* Tracklist */
     .tracklist {
       background: var(--surface); border-radius: var(--radius);
       max-height: 196px; overflow-y: auto; margin-bottom: 16px;
     }
-    .track {
-      display: flex; align-items: center; gap: 10px;
-      padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.05);
-    }
+    .track { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
     .track:last-child { border-bottom: none; }
     .track:hover { background: var(--surface-hover); }
     .track-idx { font-size: 11px; color: var(--muted); width: 16px; text-align: right; flex-shrink: 0; }
     .track-info { min-width: 0; flex: 1; }
-    .track-name {
-      font-size: 12.5px; font-weight: 500; white-space: nowrap;
-      overflow: hidden; text-overflow: ellipsis;
-    }
+    .track-name { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .track-artist { font-size: 11px; color: var(--muted); margin-top: 1px; }
     .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
     .dot.matched { background: var(--green); }
     .dot.review { background: var(--amber); }
+    .dot.pending { background: #5a5a5a; }
+    .tl-empty { padding: 22px 14px; text-align: center; font-size: 12px; color: var(--muted); line-height: 1.5; }
 
-    /* CTA */
     .cta { width: 100%; padding: 14px; font-size: 14px; }
-
-    /* Footer */
-    .footer {
-      display: flex; justify-content: center; gap: 6px;
-      margin-top: 14px; font-size: 11px; color: var(--muted);
-    }
+    .footer { display: flex; justify-content: center; gap: 6px; margin-top: 14px; font-size: 11px; color: var(--muted); min-height: 14px; }
     .footer b { color: var(--text); font-weight: 600; }
     .footer .sep { opacity: 0.4; }
 
-    /* Scrollbar */
     .tracklist::-webkit-scrollbar { width: 8px; }
     .tracklist::-webkit-scrollbar-thumb { background: #4d4d4d; border-radius: 4px; }
     .tracklist::-webkit-scrollbar-track { background: transparent; }
@@ -139,7 +99,6 @@
 </head>
 <body>
   <div class="app">
-    <!-- Header -->
     <div class="header">
       <div class="badge">&#8594;</div>
       <div>
@@ -148,23 +107,20 @@
       </div>
     </div>
 
-    <!-- Detected video -->
     <div class="label">감지된 영상</div>
     <div class="card">
       <div class="video">
-        <div class="thumb">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M8 5v14l11-7L8 5z" fill="#b3b3b3"/>
-          </svg>
+        <div class="thumb" id="thumb">
+          <svg id="thumb-ph" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M8 5v14l11-7L8 5z" fill="#b3b3b3"/></svg>
+          <img id="thumb-img" alt="" hidden />
         </div>
         <div class="video-meta">
-          <div class="video-title" id="video-title">별이 쏟아진 날 · 새벽에 듣기좋은 잔잔한 우타이테/일본노래 모음</div>
-          <div class="video-channel" id="video-channel">노른자 · 16곡 감지됨</div>
+          <div class="video-title" id="video-title">영상을 확인하는 중…</div>
+          <div class="video-channel" id="video-channel"></div>
         </div>
       </div>
     </div>
 
-    <!-- Spotify connection -->
     <div class="connect">
       <div class="connect-left">
         <span>Spotify 계정</span>
@@ -173,28 +129,13 @@
       <button class="btn btn-green btn-sm" id="connect-btn">연결</button>
     </div>
 
-    <!-- Tracklist preview -->
-    <div class="label">트랙리스트 미리보기</div>
+    <div class="label">트랙리스트</div>
     <div class="tracklist" id="track-list">
-      <div class="track"><span class="track-idx">1</span><div class="track-info"><div class="track-name">베텔게우스</div><div class="track-artist">유우리</div></div><span class="dot matched" title="매칭됨"></span></div>
-      <div class="track"><span class="track-idx">2</span><div class="track-info"><div class="track-name">月が綺麗</div><div class="track-artist">上北健</div></div><span class="dot matched" title="매칭됨"></span></div>
-      <div class="track"><span class="track-idx">3</span><div class="track-info"><div class="track-name">Sparkle</div><div class="track-artist">RADWIMPS</div></div><span class="dot matched" title="매칭됨"></span></div>
-      <div class="track"><span class="track-idx">4</span><div class="track-info"><div class="track-name">이별만이 인생이다</div><div class="track-artist">월피스카터</div></div><span class="dot review" title="확인 필요"></span></div>
-      <div class="track"><span class="track-idx">5</span><div class="track-info"><div class="track-name">바다의 유령</div><div class="track-artist">요네즈 켄시</div></div><span class="dot matched" title="매칭됨"></span></div>
-      <div class="track"><span class="track-idx">6</span><div class="track-info"><div class="track-name">if</div><div class="track-artist">니시노 카나</div></div><span class="dot matched" title="매칭됨"></span></div>
-      <div class="track"><span class="track-idx">7</span><div class="track-info"><div class="track-name">육등성의 밤</div><div class="track-artist">Aimer</div></div><span class="dot matched" title="매칭됨"></span></div>
-      <div class="track"><span class="track-idx">8</span><div class="track-info"><div class="track-name">천성의 약함</div><div class="track-artist">Akie</div></div><span class="dot review" title="확인 필요"></span></div>
+      <div class="tl-empty">트랙리스트를 읽는 중…</div>
     </div>
 
-    <!-- Convert CTA -->
     <button class="btn btn-green cta" id="convert-btn">재생목록으로 변환</button>
-
-    <!-- Footer stats -->
-    <div class="footer" id="stats">
-      <span><b>16</b>곡 감지</span><span class="sep">·</span>
-      <span><b>12</b> 매칭</span><span class="sep">·</span>
-      <span><b>4</b> 확인 필요</span>
-    </div>
+    <div class="footer" id="stats"></div>
   </div>
 
   <script src="popup.js"></script>
