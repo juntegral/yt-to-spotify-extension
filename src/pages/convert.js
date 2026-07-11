@@ -86,11 +86,22 @@ function renderList(sectionId, listId, items, withCandidates) {
 }
 
 function candRow(c, onPick) {
+  const wrap = document.createElement('div');
   const row = document.createElement('div');
   row.className = 'cand';
+  row.title = '클릭하면 미리듣기';
   row.innerHTML =
+    `<div class="cand-art"></div>` +
     `<div class="cand-info"><div class="cand-name"></div><div class="cand-sub"></div></div>` +
-    `<span class="cand-dur"></span><span class="cand-add">추가</span>`;
+    `<span class="cand-dur"></span><button class="btn btn-green btn-xs cand-add">추가</button>`;
+  const art = row.querySelector('.cand-art');
+  if (c.image) {
+    const im = document.createElement('img');
+    im.src = c.image; im.alt = ''; im.loading = 'lazy';
+    art.appendChild(im);
+  } else {
+    art.textContent = '♪';
+  }
   row.querySelector('.cand-name').textContent = c.name;
   row.querySelector('.cand-sub').textContent = [
     (c.artists || []).join(', '),
@@ -98,8 +109,35 @@ function candRow(c, onPick) {
     c.album && c.album.releaseDate ? String(c.album.releaseDate).slice(0, 4) : null,
   ].filter(Boolean).join(' · ');
   row.querySelector('.cand-dur').textContent = c.durationMs ? fmtDur(c.durationMs) : '';
-  row.addEventListener('click', () => onPick(c));
-  return row;
+
+  // "추가" 버튼만 선택 — 행 클릭은 미리듣기(공식 임베드) 토글
+  row.querySelector('.cand-add').addEventListener('click', (e) => {
+    e.stopPropagation();
+    onPick(c);
+  });
+  const embedHolder = document.createElement('div');
+  embedHolder.className = 'cand-embed';
+  row.addEventListener('click', () => toggleEmbed(embedHolder, c));
+
+  wrap.appendChild(row);
+  wrap.appendChild(embedHolder);
+  return wrap;
+}
+
+// Spotify 공식 임베드 플레이어 (앨범아트 + 재생) — 행 클릭으로 열고 닫기
+function toggleEmbed(holder, c) {
+  if (holder.firstChild) { holder.innerHTML = ''; return; }
+  const id = c.id || ((c.uri || '').split(':')[2]);
+  if (!id) return;
+  const f = document.createElement('iframe');
+  f.src = `https://open.spotify.com/embed/track/${id}?utm_source=generator&theme=0`;
+  f.width = '100%';
+  f.height = '80';
+  f.style.border = '0';
+  f.style.borderRadius = '10px';
+  f.loading = 'lazy';
+  f.allow = 'autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture';
+  holder.appendChild(f);
 }
 
 function reviewItem(item, withCandidates) {

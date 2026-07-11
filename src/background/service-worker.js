@@ -191,6 +191,9 @@ function simplify(t) {
     durationMs: t.duration_ms,
     isrc: (t.external_ids && t.external_ids.isrc) || null,
     popularity: t.popularity || 0,
+    image: (t.album && t.album.images && t.album.images.length)
+      ? (t.album.images[t.album.images.length - 1].url) : null, // 최소 크기 앨범아트
+
     album: {
       name: t.album?.name, type: t.album?.album_type,
       releaseDate: t.album?.release_date,
