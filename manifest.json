@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube → Spotify 변환기",
+  "version": "0.1.0",
+  "description": "유튜브 '노래 모음' 영상의 트랙리스트를 읽어 같은 이름의 Spotify 재생목록으로 변환합니다.",
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_title": "YouTube → Spotify 변환기"
+  },
+  "background": {
+    "service_worker": "src/background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["src/content/youtube-content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": ["storage", "activeTab", "scripting", "identity"],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://api.spotify.com/*",
+    "https://accounts.spotify.com/*"
+  ]
+}
