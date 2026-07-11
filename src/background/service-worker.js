@@ -13,46 +13,54 @@ const SPOTIFY = {
   scopes: ['playlist-modify-public', 'playlist-modify-private'],
 };
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  (async () => {
-    try {
-      switch (message.type) {
-        case 'CONNECT_SPOTIFY':
-          sendResponse({ ok: true, profile: await connectSpotify() });
-          break;
-        case 'DISCONNECT_SPOTIFY':
-          await disconnectSpotify();
-          sendResponse({ ok: true });
-          break;
-        case 'GET_AUTH_STATE':
-          sendResponse({ ok: true, ...(await getAuthState()) });
-          break;
-        case 'CONVERT':
-          sendResponse(startConvert(message.video));
-          break;
-        case 'GET_CONVERT_STATE':
-          sendResponse({ ok: true, state: (await chrome.storage.local.get('convertState')).convertState || null });
-          break;
-        case 'RESOLVE_REVIEW':
-          sendResponse({ ok: true, state: await resolveReview(message.itemId, message.uri) });
-          break;
-        case 'MANUAL_SEARCH':
-          sendResponse({ ok: true, results: await manualSearch(message.query) });
-          break;
-        case 'CLEAR_CONVERT':
-          await chrome.storage.local.remove(['convertState', 'convertTabId']);
-          await setBadge('');
-          sendResponse({ ok: true });
-          break;
-        default:
-          sendResponse({ ok: false, error: 'unknown message: ' + message.type });
-      }
-    } catch (e) {
-      sendResponse({ ok: false, error: String((e && e.message) || e) });
+async function handleMessage(message, sender) {
+  switch (message.type) {
+    // --- 디버그 브리지 전용 (개발용 — 배포 전 externally_connectable와 함께 제거) ---
+    case 'PING':
+      return { ok: true, version: chrome.runtime.getManifest().version };
+    case 'DEBUG_RELOAD':
+      setTimeout(() => chrome.runtime.reload(), 150);
+      return { ok: true, reloading: true };
+    case 'GET_VIDEO_INFO': {
+      // 보낸 탭의 콘텐츠 스크립트에서 영상 정보 추출 (외부 디버그 요청용)
+      const tabId = sender && sender.tab && sender.tab.id;
+      if (tabId == null) return { ok: false, error: 'sender tab 없음' };
+      return { ok: true, info: await chrome.tabs.sendMessage(tabId, { type: 'GET_VIDEO_INFO' }) };
     }
-  })();
-  return true;
-});
+    // --- 일반 ---
+    case 'CONNECT_SPOTIFY':
+      return { ok: true, profile: await connectSpotify() };
+    case 'DISCONNECT_SPOTIFY':
+      await disconnectSpotify();
+      return { ok: true };
+    case 'GET_AUTH_STATE':
+      return { ok: true, ...(await getAuthState()) };
+    case 'CONVERT':
+      return startConvert(message.video);
+    case 'GET_CONVERT_STATE':
+      return { ok: true, state: (await chrome.storage.local.get('convertState')).convertState || null };
+    case 'RESOLVE_REVIEW':
+      return { ok: true, state: await resolveReview(message.itemId, message.uri) };
+    case 'MANUAL_SEARCH':
+      return { ok: true, results: await manualSearch(message.query) };
+    case 'CLEAR_CONVERT':
+      await chrome.storage.local.remove(['convertState', 'convertTabId']);
+      await setBadge('');
+      return { ok: true };
+    default:
+      return { ok: false, error: 'unknown message: ' + message.type };
+  }
+}
+
+function messageListener(message, sender, sendResponse) {
+  handleMessage(message, sender)
+    .then(sendResponse)
+    .catch((e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
+  return true; // 비동기 응답
+}
+chrome.runtime.onMessage.addListener(messageListener);
+// 디버그 브리지: youtube.com 페이지에서 확장 제어 (manifest externally_connectable)
+chrome.runtime.onMessageExternal.addListener(messageListener);
 
 // ============ OAuth (PKCE) ============
 
