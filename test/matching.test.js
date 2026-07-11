@@ -87,4 +87,39 @@ function cand(over) {
   assert.ok(orig.score > cover.score + 10, `원곡(${orig.score}) > 커버(${cover.score})`);
 }
 
+// 10) 카드↔슬롯 DP 정렬: 실제 시나리오 (노른자 영상 기반)
+{
+  // 슬롯: 타임스탬프 간격(초). 아티스트 엔티티는 일부만 해석됨(한국어 표기 한계 재현)
+  const slots = [
+    { durationSec: 236, artistGuess: '유우리', artistIds: [] },            // 0 ← Yuuri 231s (길이로)
+    { durationSec: 277, artistGuess: 'KK', artistIds: [] },               // 1
+    { durationSec: 285, artistGuess: 'RADWIMPS', artistIds: ['rad'] },    // 2 ← 트림된 スパークル(534s)은 배정 불가해야 함
+    { durationSec: 315, artistGuess: '월피스카터', artistIds: [] },        // 3
+    { durationSec: 278, artistGuess: '월피스카터', artistIds: [] },        // 4 ← Heavenz 원곡 278s: 배정되되 consistent=false
+    { durationSec: 236, artistGuess: '요네즈 켄시', artistIds: ['kenshi'] }, // 5 ← 트림된 海の幽霊 285s: 엔티티로 배정
+    { durationSec: 283, artistGuess: '니시노 카나', artistIds: ['kana'] },  // 6 ← if 283s
+  ];
+  const cards = [
+    { durationMs: 231000, artistIds: ['yuuri'], artistNames: ['Yuuri'] },
+    { durationMs: 534000, artistIds: ['rad'], artistNames: ['RADWIMPS'] },   // スパークル 원본(길이 크게 불일치)
+    { durationMs: 278000, artistIds: ['heavenz'], artistNames: ['Heavenz'] },
+    { durationMs: 285000, artistIds: ['kenshi'], artistNames: ['Kenshi Yonezu'] },
+    { durationMs: 283000, artistIds: ['kana'], artistNames: ['Kana Nishino'] },
+  ];
+  const pairs = M.alignMusicCards(slots, cards);
+  const bySlot = Object.fromEntries(pairs.map((p) => [p.slotIndex, p]));
+  assert.ok(bySlot[0] && bySlot[0].cardIndex === 0, 'Yuuri → 슬롯0 (길이 5초 차)');
+  assert.ok(!pairs.some((p) => p.cardIndex === 1), '길이 크게 불일치(트림 534s vs 285s)면 미배정');
+  assert.ok(bySlot[4] && bySlot[4].cardIndex === 2 && bySlot[4].consistent === false,
+    'Heavenz 원곡 → 월피스카터 슬롯 배정 + 불일치 플래그(커버 충돌)');
+  assert.ok(bySlot[5] && bySlot[5].cardIndex === 3 && bySlot[5].consistent === true,
+    '海の幽霊: 트림돼도 엔티티로 배정');
+  assert.ok(bySlot[6] && bySlot[6].cardIndex === 4, 'if → 슬롯6');
+  // 교차 없음(순서 보존)
+  const sortedBySlot = [...pairs].sort((a, b) => a.slotIndex - b.slotIndex);
+  for (let k = 1; k < sortedBySlot.length; k++) {
+    assert.ok(sortedBySlot[k].cardIndex > sortedBySlot[k - 1].cardIndex, '교차 없음');
+  }
+}
+
 console.log('✅ matching: 모든 assert 통과');

@@ -243,8 +243,9 @@ async function matchEntry(entry) {
   }
 
   let artistLockedUsed = false;
-  // 폴백: 텍스트 매칭 실패(번역 제목 등) → 아티스트 고정 + 길이 중심
-  if (bestScore < 60 && A) {
+  // 폴백: 텍스트 매칭이 약함(번역 제목/커버 오염 등) → 아티스트 고정 + 길이 중심.
+  // 한국어 커버(피아노 버전 등)가 60~75점으로 폴백을 막는 문제 → 임계값 75.
+  if (bestScore < 75 && A) {
     try {
       const artists = await spSearch(A, 'artist', 3);
       const cand = artists && artists[0];
@@ -316,37 +317,31 @@ async function patchState(patch) {
   return next;
 }
 
-// 음악 카드(원제목·아티스트) → Spotify 정밀 매칭 (길이 무관, 텍스트+엔티티만)
+// 음악 카드(원제목·아티스트) → Spotify 정밀 매칭.
+// 핵심: 쿼리에 제목+아티스트를 넣으면 Spotify가 표기(로마자↔일어) 별칭 매칭을 해줌.
+// 따라서 아티스트 엔티티가 일치하는 결과는 제목 문자열 유사도가 0이어도 신뢰.
 async function matchMusicCard(card) {
+  const ids = await resolveArtistIds(card.artist);
   const pool = new Map();
   for (const q of [`track:"${card.title}" artist:"${card.artist}"`, `${card.artist} ${card.title}`]) {
     try {
-      (await spSearch(q, 'track', 5)).forEach((t) => { const s = simplify(t); if (!pool.has(s.uri)) pool.set(s.uri, s); });
+      (await spSearch(q, 'track', 10)).forEach((t) => { const s = simplify(t); if (!pool.has(s.uri)) pool.set(s.uri, s); });
     } catch (e) { /* noop */ }
-    if (pool.size >= 3) break;
+    if (ids.length && [...pool.values()].some((c) => (c.artistIds || []).some((id) => ids.includes(id)))) break;
   }
   if (!pool.size) return null;
-  const ids = await resolveArtistIds(card.artist);
   const entry = { titleGuess: card.title, artistGuess: card.artist, label: `${card.artist} - ${card.title}`, durationSec: null };
   let best = null, bs = -1;
   for (const c of pool.values()) {
-    const { score } = scoreCandidate(entry, c, { resolvedArtistIds: ids });
+    let { score } = scoreCandidate(entry, c, { resolvedArtistIds: ids });
+    if (ids.length && (c.artistIds || []).some((id) => ids.includes(id))) score = Math.max(score, 82);
     c._score = Math.round(score * 10) / 10;
     if (score > bs) { bs = score; best = c; }
   }
   if (bs < 80) return null;
   const chosen = pickOriginalRelease(best, [...pool.values()]);
   chosen._score = best._score;
-  return { track: chosen, score: bs };
-}
-
-// 카드 매칭 결과가 설명란 항목의 아티스트와 일치하는가 (불일치 = 커버↔원곡 충돌 가능성)
-async function musicCardConsistent(entry, pre) {
-  const a = (entry.artistGuess || '').trim();
-  if (!a) return true;
-  if (similarity(a, (pre.track.artists || []).join(' ')) >= 55) return true;
-  const ids = await resolveArtistIds(a);
-  return ids.some((id) => (pre.track.artistIds || []).includes(id));
+  return { track: chosen, score: bs, cardArtistIds: ids };
 }
 
 async function runConvert(video) {
@@ -358,25 +353,31 @@ async function runConvert(video) {
     },
   });
 
-  // 0) 음악 카드(원제목 소스) 사전 매칭 → 실제 곡 길이를 타임스탬프 간격과 정렬해 슬롯 배정
-  const preAssigned = new Map(); // slotIndex → {track, score}
+  // 0) 음악 카드(원제목 소스) 사전 매칭 → 순서 보존 DP로 슬롯 정렬
+  const preAssigned = new Map(); // slotIndex → {track, score, consistent}
   if (video.musicCards && video.musicCards.length) {
     const matches = [];
     for (const card of video.musicCards) {
       const m = await matchMusicCard(card);
       if (m) matches.push(m);
     }
-    let cursor = 0; // 카드 순서 = 재생 순서 → 단조 배정
-    for (const m of matches) {
-      let bestSlot = -1, bestDiff = Infinity;
-      for (let s = cursor; s < video.tracks.length; s++) {
-        if (preAssigned.has(s)) continue;
-        const gap = video.tracks[s].durationSec;
-        if (gap == null) continue;
-        const diff = Math.abs(gap - m.track.durationMs / 1000);
-        if (diff < bestDiff) { bestDiff = diff; bestSlot = s; }
+    if (matches.length) {
+      const slotMeta = [];
+      for (const t of video.tracks) {
+        slotMeta.push({
+          durationSec: t.durationSec,
+          artistGuess: t.artistGuess || '',
+          artistIds: await resolveArtistIds(t.artistGuess || ''),
+        });
       }
-      if (bestSlot >= 0 && bestDiff <= 25) { preAssigned.set(bestSlot, m); cursor = bestSlot + 1; }
+      const cardMeta = matches.map((m) => ({
+        durationMs: m.track.durationMs,
+        artistIds: [...new Set([...(m.track.artistIds || []), ...(m.cardArtistIds || [])])],
+        artistNames: m.track.artists || [],
+      }));
+      for (const p of alignMusicCards(slotMeta, cardMeta)) {
+        preAssigned.set(p.slotIndex, { ...matches[p.cardIndex], consistent: p.consistent });
+      }
     }
   }
 
@@ -391,7 +392,7 @@ async function runConvert(video) {
     };
     const pre = preAssigned.get(i);
     if (pre) {
-      if (await musicCardConsistent(entry, pre)) {
+      if (pre.consistent) {
         auto.push({ ...item, track: pre.track, score: Math.max(pre.score, 90) });
       } else {
         // 원제목 카드는 원곡을 가리키는데 설명란 아티스트가 다름 (우타이테 커버 가능성)

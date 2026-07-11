@@ -239,6 +239,70 @@ function pickOriginalRelease(best, pool) {
   return group[0];
 }
 
+// ---------- 음악 카드 ↔ 타임스탬프 슬롯 정렬 (순서 보존 DP) ----------
+// 카드(원제목 매칭 결과)와 설명란 슬롯은 둘 다 재생 순서 → 교차 없는 정렬.
+// 점수 = 아티스트 일치(엔티티/이름) + 길이 적합도. 영상이 곡을 잘라도(트림) 견디게 설계.
+
+function cardSlotScore(slot, card, pos) {
+  const entity = !!(slot.artistIds && slot.artistIds.length &&
+    card.artistIds && card.artistIds.some((id) => slot.artistIds.includes(id)));
+  const nameOk = !entity && slot.artistGuess &&
+    similarity(slot.artistGuess, (card.artistNames || []).join(' ')) >= 55;
+  const consistent = entity || nameOk;
+  let durFit = 15; // 길이 정보 없음 → 낮은 중립값
+  if (slot.durationSec && card.durationMs) {
+    const diff = Math.abs(slot.durationSec - card.durationMs / 1000);
+    durFit = Math.exp(-0.06 * Math.max(0, diff - 8)) * 45;
+  }
+  // 위치 보정: 카드 순서 ≈ 슬롯 순서 → 상대 위치가 가까울수록 소폭 가산 (동률 타이브레이크)
+  let posBonus = 0;
+  if (pos) posBonus = 4 * (1 - Math.min(1, Math.abs(pos.slotFrac - pos.cardFrac) * 2));
+  const score = (consistent ? 55 : 0) + durFit + posBonus;
+  // 자격: 아티스트 일치면 트림/페이드로 길이가 어긋나도 허용(±60초 수준),
+  //       불일치면 길이가 거의 정확(±13초)해야만 후보
+  const eligible = (consistent && durFit >= 1.5) || durFit >= 33;
+  return { score, consistent, eligible };
+}
+
+// slots: [{durationSec, artistGuess, artistIds}], cards: [{durationMs, artistIds, artistNames}]
+// 반환: [{cardIndex, slotIndex, score, consistent}] (slotIndex 오름차순, 교차 없음)
+function alignMusicCards(slots, cards) {
+  const n = slots.length, m = cards.length;
+  const S = [];
+  for (let j = 0; j < m; j++) {
+    S[j] = [];
+    for (let i = 0; i < n; i++) {
+      S[j][i] = cardSlotScore(slots[i], cards[j], {
+        slotFrac: n > 1 ? i / (n - 1) : 0.5,
+        cardFrac: m > 1 ? j / (m - 1) : 0.5,
+      });
+    }
+  }
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let j = 1; j <= m; j++) {
+    for (let i = 1; i <= n; i++) {
+      let v = Math.max(dp[j - 1][i], dp[j][i - 1]);
+      const sc = S[j - 1][i - 1];
+      if (sc.eligible) v = Math.max(v, dp[j - 1][i - 1] + sc.score);
+      dp[j][i] = v;
+    }
+  }
+  const pairs = [];
+  let j = m, i = n;
+  while (j > 0 && i > 0) {
+    const sc = S[j - 1][i - 1];
+    if (sc.eligible && dp[j][i] === dp[j - 1][i - 1] + sc.score) {
+      pairs.push({ cardIndex: j - 1, slotIndex: i - 1, score: sc.score, consistent: sc.consistent });
+      j--; i--;
+    } else if (dp[j][i] === dp[j - 1][i]) {
+      j--;
+    } else {
+      i--;
+    }
+  }
+  return pairs.reverse();
+}
+
 // ---------- exports ----------
 
 if (typeof module !== 'undefined' && module.exports) {
@@ -247,5 +311,6 @@ if (typeof module !== 'undefined' && module.exports) {
     scoreCandidate, classify, TIER,
     releaseDateValue, pickOriginalRelease, sameRecording,
     isCompilationLike, isReissueLike,
+    cardSlotScore, alignMusicCards,
   };
 }
