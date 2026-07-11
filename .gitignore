@@ -8,3 +8,5 @@ build/
 *.log
 .vscode/
 .idea/
+
+design-preview.html
