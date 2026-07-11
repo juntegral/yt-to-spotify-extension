@@ -10,7 +10,7 @@ const SPOTIFY = {
   tokenUrl: 'https://accounts.spotify.com/api/token',
   apiBase: 'https://api.spotify.com/v1',
   clientId: '666f8565157f4c32b461d8fa9d9d1d6c', // PKCE 공개 클라이언트
-  scopes: ['playlist-modify-public', 'playlist-modify-private'],
+  scopes: ['playlist-modify-public', 'playlist-modify-private', 'user-read-private'], // user-read-private: /me country → 검색 market
 };
 
 async function handleMessage(message, sender) {
@@ -201,6 +201,15 @@ function simplify(t) {
 
 // ============ 매칭 파이프라인 ============
 
+// 아티스트 엔티티 확정: 이름 → Spotify 아티스트 ID들 (별칭 처리: "優里" 검색 → Yuuri)
+async function resolveArtistIds(name) {
+  if (!name || !name.trim()) return [];
+  try {
+    const artists = await spSearch(name.trim(), 'artist', 5);
+    return (artists || []).slice(0, 3).map((a) => a.id).filter(Boolean);
+  } catch (e) { return []; }
+}
+
 async function matchEntry(entry) {
   const pool = new Map(); // uri → simplified
   const addToPool = (items) => items.forEach((t) => { if (t && t.uri && !pool.has(t.uri)) pool.set(t.uri, simplify(t)); });
@@ -212,10 +221,15 @@ async function matchEntry(entry) {
   if (T && A) strategies.push(`track:"${A}" artist:"${T}"`); // 순서 모호 대비
   strategies.push(T || entry.label);
 
+  // 아티스트 ID 확정 (캐시됨) — A 실패 시 T도 시도 (순서 모호)
+  let resolvedArtistIds = await resolveArtistIds(A);
+  if (!resolvedArtistIds.length && T && T !== A) resolvedArtistIds = await resolveArtistIds(T);
+  const scoreOpts = { resolvedArtistIds };
+
   let best = null, bestScore = -1;
   const rescore = () => {
     for (const c of pool.values()) {
-      const { score } = scoreCandidate(entry, c);
+      const { score } = scoreCandidate(entry, c, scoreOpts);
       c._score = Math.round(score * 10) / 10;
       if (score > bestScore) { bestScore = score; best = c; }
     }
@@ -239,7 +253,7 @@ async function matchEntry(entry) {
         for (const t of items) {
           const s = simplify(t);
           if (!pool.has(s.uri)) {
-            const { score } = scoreCandidate(entry, s, { artistLocked: true });
+            const { score } = scoreCandidate(entry, s, { artistLocked: true, resolvedArtistIds });
             s._score = Math.round(score * 10) / 10;
             s._locked = true;
             pool.set(s.uri, s);

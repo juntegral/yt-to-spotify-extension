@@ -121,11 +121,17 @@ function durationScore(expectedSec, candMs) {
 // ---------- 후보 점수 ----------
 
 // entry: { titleGuess, artistGuess, label, durationSec }
-// cand:  { name, artists: [이름...], durationMs, album: {name} }
-// opts:  { artistLocked: true } → 아티스트 확정 상태(폴백 검색), 길이 가중 강화
+// cand:  { name, artists: [이름...], artistIds, durationMs, album: {name} }
+// opts:  { artistLocked: true }  → 아티스트 확정 상태(폴백 검색), 길이 가중 강화
+//        { resolvedArtistIds: [] } → 아티스트 엔티티(ID) 확정 — 로마자/한자 표기가 달라도
+//          ID가 일치하면 아티스트 점수 100 (예: 입력 "優里" ↔ API "Yuuri")
 function scoreCandidate(entry, cand, opts) {
   opts = opts || {};
   const artistJoined = (cand.artists || []).join(' ');
+  const entityMatch = !!(
+    opts.resolvedArtistIds && opts.resolvedArtistIds.length &&
+    cand.artistIds && cand.artistIds.some((id) => opts.resolvedArtistIds.includes(id))
+  );
 
   // "A - B"의 순서 모호 → 두 방향 모두 계산해 나은 쪽 채택
   function orientation(title, artist) {
@@ -146,15 +152,16 @@ function scoreCandidate(entry, cand, opts) {
   const o = o1s >= o2s ? o1 : o2;
 
   const dur = durationScore(entry.durationSec, cand.durationMs);
+  const artistScore = entityMatch ? 100 : o.a; // 엔티티 일치 = 표기 무관 확정
 
   let base;
   if (opts.artistLocked) {
     // 아티스트는 이미 확정 → 길이 중심 + 제목 보조
     base = dur != null ? o.t * 0.4 + dur * 0.6 : o.t;
   } else if (dur != null) {
-    base = o.t * 0.45 + o.a * 0.3 + dur * 0.25;
+    base = o.t * 0.45 + artistScore * 0.3 + dur * 0.25;
   } else {
-    base = o.t * 0.6 + o.a * 0.4;
+    base = o.t * 0.6 + artistScore * 0.4;
   }
 
   const penalty = forbiddenPenalty(
@@ -163,7 +170,7 @@ function scoreCandidate(entry, cand, opts) {
   );
 
   const score = Math.max(0, Math.min(100, base - penalty));
-  return { score, titleScore: o.t, artistScore: o.a, durScore: dur, penalty };
+  return { score, titleScore: o.t, artistScore, durScore: dur, penalty, entityMatch };
 }
 
 // ---------- 신뢰도 분류 ----------

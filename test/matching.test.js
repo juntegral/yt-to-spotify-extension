@@ -76,4 +76,15 @@ function cand(over) {
   assert.ok(M.releaseDateValue('2015-12-31') < M.releaseDateValue('2016'));
 }
 
+// 9) 아티스트 엔티티 일치: 표기가 달라도(優里 vs Yuuri) ID 일치 → 원곡이 커버를 이김
+{
+  const entry = { titleGuess: 'ベテルギウス', artistGuess: '優里', label: '優里 - ベテルギウス', durationSec: 236 };
+  const opts = { resolvedArtistIds: ['yuuri1'] };
+  const orig = M.scoreCandidate(entry, cand({ artists: ['Yuuri'], artistIds: ['yuuri1'], durationMs: 231000 }), opts);
+  const cover = M.scoreCandidate(entry, cand({ artists: ['Bell'], artistIds: ['bell1'], durationMs: 236000 }), opts);
+  assert.ok(orig.entityMatch, '엔티티 일치 플래그');
+  assert.ok(orig.score >= 85, `원곡 auto 승급 (${orig.score})`);
+  assert.ok(orig.score > cover.score + 10, `원곡(${orig.score}) > 커버(${cover.score})`);
+}
+
 console.log('✅ matching: 모든 assert 통과');
