@@ -146,13 +146,29 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function apiFetch(path, init, attempt) {
   attempt = attempt || 0;
   const token = await getAccessToken();
-  const res = await fetch(SPOTIFY.apiBase + path, {
-    ...init,
-    headers: { Authorization: 'Bearer ' + token, ...((init && init.headers) || {}) },
-  });
-  if (res.status === 429 && attempt < 3) {
-    const wait = (Number(res.headers.get('Retry-After')) || 1) * 1000 + 200;
-    await sleep(wait);
+  // 요청 타임아웃 20초 — 매달린 요청이 변환 전체를 멈추지 않게
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  let res;
+  try {
+    res = await fetch(SPOTIFY.apiBase + path, {
+      ...init,
+      signal: ctrl.signal,
+      headers: { Authorization: 'Bearer ' + token, ...((init && init.headers) || {}) },
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    if (attempt < 2) { await sleep(1500); return apiFetch(path, init, attempt + 1); }
+    throw new Error('네트워크 시간초과: ' + path.split('?')[0]);
+  }
+  clearTimeout(timer);
+  if (res.status === 429) {
+    const waitSec = Number(res.headers.get('Retry-After')) || 1;
+    // 긴 대기는 무한로딩처럼 보임 → 30초 초과면 명시적 에러로 전환
+    if (waitSec > 30 || attempt >= 3) {
+      throw new Error(`Spotify 요청 한도 초과 — 약 ${waitSec}초 후 다시 시도해주세요`);
+    }
+    await sleep(waitSec * 1000 + 200);
     return apiFetch(path, init, attempt + 1);
   }
   if (!res.ok) {
@@ -306,19 +322,36 @@ function startConvert(video) {
     return { ok: false, error: '트랙리스트가 없습니다' };
   }
   converting = true;
+  // MV3 서비스 워커가 변환 도중 잠들지 않게 keepalive (20초 간격 API 핑)
+  const keepalive = setInterval(() => { try { chrome.runtime.getPlatformInfo(() => {}); } catch (e) { /* noop */ } }, 20000);
   runConvert(video).catch(async (e) => {
     await patchState({ status: 'error', error: String((e && e.message) || e) });
     await setBadge('!', '#e05c5c');
-  }).finally(() => { converting = false; });
+  }).finally(() => { converting = false; clearInterval(keepalive); });
   return { ok: true, started: true };
 }
 
 async function patchState(patch) {
   const { convertState } = await chrome.storage.local.get('convertState');
-  const next = Object.assign({}, convertState || {}, patch);
+  const next = Object.assign({}, convertState || {}, patch, { lastUpdate: Date.now() });
   await chrome.storage.local.set({ convertState: next });
   return next;
 }
+
+// 고아 상태 감지: 서비스 워커가 재시작됐는데 상태가 'running'이면
+// 그 변환은 이전 워커와 함께 죽은 것 → 에러로 전환해 무한로딩 방지
+(async () => {
+  try {
+    const { convertState } = await chrome.storage.local.get('convertState');
+    if (convertState && convertState.status === 'running') {
+      convertState.status = 'error';
+      convertState.error = '변환이 중단되었습니다 (백그라운드 재시작). 다시 실행해주세요.';
+      convertState.lastUpdate = Date.now();
+      await chrome.storage.local.set({ convertState });
+      await setBadge('!', '#e05c5c');
+    }
+  } catch (e) { /* noop */ }
+})();
 
 // 음악 카드(원제목·아티스트) → Spotify 정밀 매칭.
 // 핵심: 쿼리에 제목+아티스트를 넣으면 Spotify가 표기(로마자↔일어) 별칭 매칭을 해줌.
