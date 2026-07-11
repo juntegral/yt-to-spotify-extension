@@ -185,17 +185,49 @@ const apiGet = (p) => apiFetch(p);
 const apiPost = (p, body) =>
   apiFetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-// 검색 캐시 (세션 메모리)
-const searchCache = new Map();
+function isRateLimit(e) { return /요청 한도/.test(String((e && e.message) || e)); }
+
+// 검색 캐시: 메모리 + 영구(chrome.storage, 7일 TTL, 최대 600키)
+// → 같은 영상 재변환·재시도 시 API 호출을 거의 0으로 (일일 쿼터 보호)
+const memCache = new Map();
+let cachePromise = null;
+function loadCache() {
+  if (!cachePromise) cachePromise = chrome.storage.local.get('spSearchCache').then((r) => r.spSearchCache || {});
+  return cachePromise;
+}
+async function putCache(key, v) {
+  const c = await loadCache();
+  c[key] = { v, t: Date.now() };
+  const keys = Object.keys(c);
+  if (keys.length > 600) {
+    keys.sort((a, b) => c[a].t - c[b].t);
+    for (const k of keys.slice(0, keys.length - 500)) delete c[k];
+  }
+  await chrome.storage.local.set({ spSearchCache: c });
+}
+
+function simplifyArtist(a) {
+  return { id: a.id, name: a.name, followers: (a.followers && a.followers.total) || 0 };
+}
+
+// 반환: 간소화된 결과 (track → simplify, artist → simplifyArtist). 캐시 객체 공유 주의 — 호출부에서 복사.
 async function spSearch(q, type, limit) {
   type = type || 'track'; limit = limit || 10;
   const key = `${type}|${limit}|${q}`;
-  if (searchCache.has(key)) return searchCache.get(key);
+  if (memCache.has(key)) return memCache.get(key);
+  const stored = (await loadCache())[key];
+  if (stored && Date.now() - stored.t < 7 * 24 * 3600 * 1000) {
+    memCache.set(key, stored.v);
+    return stored.v;
+  }
   const { spotifyProfile } = await chrome.storage.local.get('spotifyProfile');
   const market = spotifyProfile && spotifyProfile.country ? `&market=${spotifyProfile.country}` : '';
   const data = await apiGet(`/search?type=${type}&limit=${limit}${market}&q=${encodeURIComponent(q)}`);
-  const items = type === 'track' ? (data.tracks?.items || []) : (data.artists?.items || []);
-  searchCache.set(key, items);
+  const items = type === 'track'
+    ? (data.tracks?.items || []).map(simplify)
+    : (data.artists?.items || []).map(simplifyArtist);
+  memCache.set(key, items);
+  await putCache(key, items);
   return items;
 }
 
@@ -226,12 +258,15 @@ async function resolveArtistIds(name) {
   try {
     const artists = await spSearch(name.trim(), 'artist', 5);
     return (artists || []).slice(0, 3).map((a) => a.id).filter(Boolean);
-  } catch (e) { return []; }
+  } catch (e) {
+    if (isRateLimit(e)) throw e; // 레이트리밋은 전체 중단 (쓰레기 결과 방지)
+    return [];
+  }
 }
 
 async function matchEntry(entry) {
-  const pool = new Map(); // uri → simplified
-  const addToPool = (items) => items.forEach((t) => { if (t && t.uri && !pool.has(t.uri)) pool.set(t.uri, simplify(t)); });
+  const pool = new Map(); // uri → simplified (캐시 오염 방지를 위해 복사본 저장)
+  const addToPool = (items) => items.forEach((t) => { if (t && t.uri && !pool.has(t.uri)) pool.set(t.uri, { ...t }); });
 
   const strategies = [];
   const T = (entry.titleGuess || '').trim(), A = (entry.artistGuess || '').trim();
@@ -256,7 +291,8 @@ async function matchEntry(entry) {
 
   for (const q of strategies) {
     if (!q || !q.trim()) continue;
-    try { addToPool(await spSearch(q, 'track', 10)); } catch (e) { /* 개별 쿼리 실패 무시 */ }
+    try { addToPool(await spSearch(q, 'track', 10)); }
+    catch (e) { if (isRateLimit(e)) throw e; /* 그 외 개별 쿼리 실패 무시 */ }
     rescore();
     if (bestScore >= 85) break; // 조기 종료 → API 절약
   }
@@ -271,7 +307,7 @@ async function matchEntry(entry) {
       if (cand && cand.name) {
         const items = await spSearch(`artist:"${cand.name}"`, 'track', 50);
         for (const t of items) {
-          const s = simplify(t);
+          const s = { ...t };
           if (!pool.has(s.uri)) {
             const { score } = scoreCandidate(entry, s, { artistLocked: true, resolvedArtistIds });
             s._score = Math.round(score * 10) / 10;
@@ -281,7 +317,7 @@ async function matchEntry(entry) {
           }
         }
       }
-    } catch (e) { /* 폴백 실패 무시 */ }
+    } catch (e) { if (isRateLimit(e)) throw e; /* 그 외 폴백 실패 무시 */ }
   }
 
   if (!best) return { tier: 'notfound', chosen: null, candidates: [] };
@@ -361,8 +397,8 @@ async function matchMusicCard(card) {
   const pool = new Map();
   for (const q of [`track:"${card.title}" artist:"${card.artist}"`, `${card.artist} ${card.title}`]) {
     try {
-      (await spSearch(q, 'track', 10)).forEach((t) => { const s = simplify(t); if (!pool.has(s.uri)) pool.set(s.uri, s); });
-    } catch (e) { /* noop */ }
+      (await spSearch(q, 'track', 10)).forEach((t) => { if (!pool.has(t.uri)) pool.set(t.uri, { ...t }); });
+    } catch (e) { if (isRateLimit(e)) throw e; }
     if (ids.length && [...pool.values()].some((c) => (c.artistIds || []).some((id) => ids.includes(id)))) break;
   }
   if (!pool.size) return null;
@@ -501,6 +537,5 @@ async function resolveReview(itemId, uri) {
 
 async function manualSearch(query) {
   if (!query || !query.trim()) return [];
-  const items = await spSearch(query.trim(), 'track', 10);
-  return items.map(simplify);
+  return spSearch(query.trim(), 'track', 10); // 이미 간소화된 형태
 }
