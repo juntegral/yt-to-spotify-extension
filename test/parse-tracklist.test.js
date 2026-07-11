@@ -46,6 +46,8 @@ assert.strictEqual(a[0].artistGuess, '유우리');
 assert.strictEqual(a[0].titleGuess, '베텔게우스');
 assert.strictEqual(a[13].time, '1:02:08');
 assert.strictEqual(a[13].seconds, 3728);
+assert.strictEqual(a[0].durationSec, 236, '첫 곡 길이 = 3:56 = 236초');
+assert.strictEqual(a[15].durationSec, null, '마지막 곡 길이 불명');
 
 const b = parseDescriptionTracklist(inlineFormat);
 report('인라인', b);

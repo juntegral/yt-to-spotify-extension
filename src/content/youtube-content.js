@@ -13,7 +13,12 @@ if (!window.__ytSpotifyContentLoaded) {
 }
 
 function extractVideoInfo() {
-  return { title: extractTitle(), channel: extractChannel(), tracks: extractTracks() };
+  return {
+    title: extractTitle(),
+    channel: extractChannel(),
+    url: location.origin + location.pathname + '?v=' + (new URLSearchParams(location.search).get('v') || ''),
+    tracks: extractTracks(),
+  };
 }
 
 function extractTitle() {

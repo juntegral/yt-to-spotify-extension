@@ -65,7 +65,11 @@ function parseDescriptionTracklist(text) {
     lastSec = r.seconds;
     out.push(r);
   }
-  out.forEach((r, i) => (r.index = i + 1));
+  out.forEach((r, i) => {
+    r.index = i + 1;
+    // 타임스탬프 간격 = 대략적 곡 길이 (마지막 곡은 불명 → null)
+    r.durationSec = i + 1 < out.length ? out[i + 1].seconds - r.seconds : null;
+  });
   return out.length >= 3 ? out : [];
 }
 

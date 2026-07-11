@@ -1,127 +1,113 @@
-// popup.js — 팝업 UI 로직
-// Spotify 연결(1단계) 실제 동작 + 트랙리스트 동적 렌더(2단계).
-// 유튜브 SPA 전환 대응: 콘텐츠 스크립트 온디맨드 주입 + 짧은 재시도.
+// popup.js — 팝업 UI
+// 연결(1단계) + 트랙리스트(2단계) + 변환·검토·수동검색(3~5단계).
+// 변환은 서비스 워커에서 진행 → 여기서는 상태 폴링/렌더만.
 
 const els = {};
+let pollTimer = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   cacheEls();
-  bindButtons();
+  bind();
   await refreshAuthState();
-  await loadCurrentVideo();
+  const st = await getConvertState();
+  if (st && st.status === 'running') { showView('progress'); renderProgress(st); startPolling(); }
+  else if (st && st.status === 'done' && (st.review.length || st.notFound.length)) {
+    showView('result'); renderResult(st);
+  } else {
+    showView('main');
+    await loadCurrentVideo();
+  }
 });
 
 function cacheEls() {
-  els.connectBtn = document.getElementById('connect-btn');
-  els.status = document.getElementById('spotify-status');
-  els.convertBtn = document.getElementById('convert-btn');
-  els.videoTitle = document.getElementById('video-title');
-  els.videoChannel = document.getElementById('video-channel');
-  els.trackList = document.getElementById('track-list');
-  els.stats = document.getElementById('stats');
-  els.thumbImg = document.getElementById('thumb-img');
-  els.thumbPh = document.getElementById('thumb-ph');
+  ['view-main', 'view-progress', 'view-result', 'connect-btn', 'spotify-status', 'convert-btn',
+   'video-title', 'video-channel', 'track-list', 'stats', 'thumb-img', 'thumb-ph',
+   'prog-title', 'prog-text', 'prog-fill', 'res-title', 'sum-added', 'sum-review', 'sum-notfound',
+   'playlist-link', 'review-section', 'review-list', 'notfound-section', 'notfound-list', 'done-btn']
+    .forEach((id) => { els[id] = document.getElementById(id); });
 }
 
-function bindButtons() {
-  els.connectBtn.addEventListener('click', onConnectClick);
-  els.convertBtn.addEventListener('click', onConvertClick);
+function bind() {
+  els['connect-btn'].addEventListener('click', onConnect);
+  els['convert-btn'].addEventListener('click', onConvert);
+  els['done-btn'].addEventListener('click', async () => {
+    await send({ type: 'CLEAR_CONVERT' });
+    showView('main');
+    await loadCurrentVideo();
+  });
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function sendBg(message) {
+async function send(msg) {
   if (typeof chrome === 'undefined' || !chrome.runtime) return null;
-  return chrome.runtime.sendMessage(message);
+  try { return await chrome.runtime.sendMessage(msg); } catch (e) { return { ok: false, error: String(e) }; }
 }
+async function getConvertState() {
+  const r = await send({ type: 'GET_CONVERT_STATE' });
+  return r && r.ok ? r.state : null;
+}
+function showView(name) {
+  for (const v of ['main', 'progress', 'result']) {
+    els['view-' + v].classList.toggle('hidden', v !== name);
+  }
+}
+const fmtDur = (ms) => {
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
 
-// --- Spotify 연결 상태 ---
+// ===== 연결 =====
 async function refreshAuthState() {
-  const res = await sendBg({ type: 'GET_AUTH_STATE' });
-  if (res && res.connected) setConnectedUI(res.profile);
-  else setDisconnectedUI();
+  const r = await send({ type: 'GET_AUTH_STATE' });
+  if (r && r.connected) setConn(true, r.profile); else setConn(false);
 }
-function setConnectedUI(profile) {
-  els.status.textContent = profile && profile.name ? `연결됨 · ${profile.name}` : '연결됨';
-  els.status.classList.add('on');
-  els.connectBtn.textContent = '연결 해제';
-  els.connectBtn.classList.remove('btn-green');
-  els.connectBtn.classList.add('btn-outline');
-  els.connectBtn.dataset.connected = 'true';
+function setConn(on, profile) {
+  const st = els['spotify-status'], btn = els['connect-btn'];
+  st.textContent = on ? (profile && profile.name ? `연결됨 · ${profile.name}` : '연결됨') : '연결 안 됨';
+  st.classList.toggle('on', on);
+  btn.textContent = on ? '연결 해제' : '연결';
+  btn.classList.toggle('btn-green', !on);
+  btn.classList.toggle('btn-outline', on);
+  btn.dataset.on = on ? '1' : '';
 }
-function setDisconnectedUI() {
-  els.status.textContent = '연결 안 됨';
-  els.status.classList.remove('on');
-  els.connectBtn.textContent = '연결';
-  els.connectBtn.classList.add('btn-green');
-  els.connectBtn.classList.remove('btn-outline');
-  els.connectBtn.dataset.connected = 'false';
-}
-async function onConnectClick() {
-  if (els.connectBtn.dataset.connected === 'true') {
-    await sendBg({ type: 'DISCONNECT_SPOTIFY' });
-    setDisconnectedUI();
-    return;
-  }
-  els.status.textContent = '연결 중…';
-  const res = await sendBg({ type: 'CONNECT_SPOTIFY' });
-  if (res && res.ok) setConnectedUI(res.profile);
-  else els.status.textContent = '연결 실패: ' + ((res && res.error) || '알 수 없음');
-}
-async function onConvertClick() {
-  if (els.connectBtn.dataset.connected !== 'true') {
-    els.status.textContent = '먼저 Spotify를 연결하세요';
-    return;
-  }
-  els.convertBtn.textContent = '변환 중…';
-  els.convertBtn.disabled = true;
-  const res = await sendBg({ type: 'CONVERT', video: window.__video || null });
-  if (!res || !res.ok) {
-    els.convertBtn.textContent = '재생목록으로 변환';
-    els.convertBtn.disabled = false;
-    els.status.textContent = (res && res.error) || '변환 실패';
-  }
+async function onConnect() {
+  if (els['connect-btn'].dataset.on) { await send({ type: 'DISCONNECT_SPOTIFY' }); setConn(false); return; }
+  els['spotify-status'].textContent = '연결 중…';
+  const r = await send({ type: 'CONNECT_SPOTIFY' });
+  if (r && r.ok) setConn(true, r.profile);
+  else els['spotify-status'].textContent = '연결 실패: ' + ((r && r.error) || '?');
 }
 
-// --- 현재 유튜브 영상 정보 ---
+// ===== 영상/트랙리스트 =====
 async function loadCurrentVideo() {
-  if (typeof chrome === 'undefined' || !chrome.tabs) return; // 미리보기 방어
+  if (typeof chrome === 'undefined' || !chrome.tabs) return;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const videoId = getVideoId(tab && tab.url);
-  if (!videoId) {
-    els.videoTitle.textContent = '유튜브 영상 페이지에서 열어주세요';
-    els.videoChannel.textContent = '';
-    renderTracks([]);
+  const vid = getVideoId(tab && tab.url);
+  if (!vid) {
+    els['video-title'].textContent = '유튜브 영상 페이지에서 열어주세요';
+    els['video-channel'].textContent = '';
+    renderTrackPreview([]);
     return;
   }
-  setThumbnail(videoId);
-
-  // SPA 전환/지연 로딩 대응: 몇 번 재시도하며 점점 최신 데이터로 갱신
+  setThumb(vid);
   let got = null;
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const info = await getVideoInfo(tab.id, attempt === 0);
+  for (let i = 0; i < 4; i++) {
+    const info = await getVideoInfo(tab.id, i === 0);
     if (info && info.title) {
-      got = info;
-      window.__video = info;
-      renderVideo(info);
-      if (info.tracks && info.tracks.length) break; // 트랙까지 잡히면 종료
+      got = info; window.__video = info;
+      els['video-title'].textContent = info.title;
+      els['video-channel'].textContent = info.channel || '';
+      renderTrackPreview(info.tracks || []);
+      if (info.tracks && info.tracks.length) break;
     }
     await sleep(400);
   }
-  if (!got) {
-    els.videoTitle.textContent = '영상 정보를 읽지 못했어요 (새로고침 후 다시)';
-    renderTracks([]);
-  } else if (!got.tracks || !got.tracks.length) {
-    renderTracks([]); // 트랙리스트 못 찾음 → 빈 상태
-  }
+  if (!got) { els['video-title'].textContent = '영상 정보를 읽지 못했어요'; renderTrackPreview([]); }
 }
-
-async function getVideoInfo(tabId, allowInject) {
-  try {
-    return await chrome.tabs.sendMessage(tabId, { type: 'GET_VIDEO_INFO' });
-  } catch (e) {
-    // 콘텐츠 스크립트 미주입(설치 전 열린 탭 등) → 온디맨드 주입 후 1회 재시도
-    if (allowInject && chrome.scripting) {
+async function getVideoInfo(tabId, inject) {
+  try { return await chrome.tabs.sendMessage(tabId, { type: 'GET_VIDEO_INFO' }); }
+  catch (e) {
+    if (inject && chrome.scripting) {
       try {
         await chrome.scripting.executeScript({
           target: { tabId },
@@ -129,62 +115,175 @@ async function getVideoInfo(tabId, allowInject) {
         });
         await sleep(150);
         return await chrome.tabs.sendMessage(tabId, { type: 'GET_VIDEO_INFO' });
-      } catch (e2) {
-        console.debug('[popup] inject/재시도 실패:', e2);
-      }
+      } catch (e2) { /* noop */ }
     }
     return null;
   }
 }
-
-function renderVideo(info) {
-  els.videoTitle.textContent = info.title || '';
-  els.videoChannel.textContent = info.channel || '';
-  renderTracks(info.tracks || []);
-}
-
-function renderTracks(tracks) {
-  els.trackList.innerHTML = '';
+function renderTrackPreview(tracks) {
+  const list = els['track-list'];
+  list.innerHTML = '';
   if (!tracks.length) {
     const d = document.createElement('div');
     d.className = 'tl-empty';
     d.textContent = '이 영상에서 트랙리스트를 찾지 못했어요.\n설명란에 타임스탬프 목록이 있는 영상에서 동작해요.';
-    d.style.whiteSpace = 'pre-line';
-    els.trackList.appendChild(d);
-    els.stats.textContent = '';
+    list.appendChild(d);
+    els['stats'].textContent = '';
+    els['convert-btn'].disabled = true;
     return;
   }
+  els['convert-btn'].disabled = false;
   for (const t of tracks) {
     const row = document.createElement('div');
     row.className = 'track';
-    row.innerHTML =
-      `<span class="track-idx">${t.index}</span>` +
-      `<div class="track-info"><div class="track-name"></div><div class="track-artist"></div></div>` +
-      `<span class="dot pending" title="매칭 전"></span>`;
+    row.innerHTML = `<span class="track-idx">${t.index}</span><div class="track-info"><div class="track-name"></div><div class="track-artist"></div></div>`;
     row.querySelector('.track-name').textContent = t.titleGuess || t.label || '';
     row.querySelector('.track-artist').textContent = t.artistGuess || '';
-    els.trackList.appendChild(row);
+    list.appendChild(row);
   }
-  els.stats.innerHTML = `<span><b>${tracks.length}</b>곡 감지</span>`;
+  els['stats'].innerHTML = `<span><b>${tracks.length}</b>곡 감지</span>`;
 }
-
-function setThumbnail(videoId) {
-  if (!els.thumbImg) return;
-  els.thumbImg.onload = () => {
-    els.thumbImg.hidden = false;
-    if (els.thumbPh) els.thumbPh.style.display = 'none';
-  };
-  els.thumbImg.onerror = () => { els.thumbImg.hidden = true; };
-  els.thumbImg.src = `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+function setThumb(id) {
+  els['thumb-img'].onload = () => { els['thumb-img'].hidden = false; els['thumb-ph'].style.display = 'none'; };
+  els['thumb-img'].onerror = () => { els['thumb-img'].hidden = true; };
+  els['thumb-img'].src = `https://i.ytimg.com/vi/${id}/mqdefault.jpg`;
 }
-
 function getVideoId(url) {
   if (!url) return null;
   try {
     const u = new URL(url);
-    if (!/(^|\.)youtube\.com$/.test(u.hostname)) return null;
-    return u.searchParams.get('v');
-  } catch (e) {
-    return null;
+    return /(^|\.)youtube\.com$/.test(u.hostname) ? u.searchParams.get('v') : null;
+  } catch (e) { return null; }
+}
+
+// ===== 변환 =====
+async function onConvert() {
+  if (!els['connect-btn'].dataset.on) { els['spotify-status'].textContent = '먼저 Spotify를 연결하세요'; return; }
+  const video = window.__video;
+  if (!video || !video.tracks || !video.tracks.length) return;
+  const r = await send({ type: 'CONVERT', video });
+  if (!r || !r.ok) { els['stats'].textContent = (r && r.error) || '변환 시작 실패'; return; }
+  els['prog-title'].textContent = video.title;
+  showView('progress');
+  startPolling();
+}
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(async () => {
+    const st = await getConvertState();
+    if (!st) return;
+    if (st.status === 'running') renderProgress(st);
+    else {
+      stopPolling();
+      if (st.status === 'done') { showView('result'); renderResult(st); }
+      else { showView('main'); els['stats'].textContent = '변환 실패: ' + (st.error || '?'); }
+    }
+  }, 700);
+}
+function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+function renderProgress(st) {
+  els['prog-title'].textContent = st.videoTitle || '';
+  els['prog-text'].textContent = `매칭 중… ${st.processed}/${st.total}`;
+  els['prog-fill'].style.width = (st.total ? Math.round((st.processed / st.total) * 100) : 0) + '%';
+}
+
+// ===== 결과/검토 =====
+function renderResult(st) {
+  els['res-title'].textContent = st.videoTitle || '';
+  els['sum-added'].textContent = (st.added || []).length;
+  els['sum-review'].textContent = (st.review || []).length;
+  els['sum-notfound'].textContent = (st.notFound || []).length;
+  if (st.playlistUrl) { els['playlist-link'].href = st.playlistUrl; els['playlist-link'].classList.remove('hidden'); }
+  else els['playlist-link'].classList.add('hidden');
+
+  renderReviewList(st);
+  renderNotFoundList(st);
+}
+
+function candRow(c, onPick) {
+  const row = document.createElement('div');
+  row.className = 'cand';
+  row.innerHTML = `<div class="cand-info"><div class="cand-name"></div><div class="cand-sub"></div></div><span class="cand-dur"></span>`;
+  row.querySelector('.cand-name').textContent = c.name;
+  const albumBits = [c.artists.join(', '), c.album && c.album.name, c.album && c.album.releaseDate ? String(c.album.releaseDate).slice(0, 4) : null]
+    .filter(Boolean).join(' · ');
+  row.querySelector('.cand-sub').textContent = albumBits;
+  row.querySelector('.cand-dur').textContent = c.durationMs ? fmtDur(c.durationMs) : '';
+  row.addEventListener('click', () => onPick(c));
+  return row;
+}
+
+function reviewItem(item, withCandidates) {
+  const box = document.createElement('div');
+  box.className = 'review-item';
+  const head = document.createElement('div');
+  head.className = 'ri-head';
+  head.innerHTML = `<div class="ri-label"></div><span class="ri-time"></span>`;
+  head.querySelector('.ri-label').textContent = item.label;
+  head.querySelector('.ri-time').textContent = item.time || '';
+  box.appendChild(head);
+
+  const pick = async (c) => {
+    box.style.opacity = '0.5';
+    const r = await send({ type: 'RESOLVE_REVIEW', itemId: item.id, uri: c.uri });
+    if (r && r.ok) renderResult(r.state);
+    else box.style.opacity = '1';
+  };
+
+  if (withCandidates && item.candidates && item.candidates.length) {
+    for (const c of item.candidates) box.appendChild(candRow(c, pick));
   }
+
+  // 수동 검색 줄
+  const sr = document.createElement('div');
+  sr.className = 'search-row';
+  const input = document.createElement('input');
+  input.placeholder = 'Spotify에서 직접 검색…';
+  const sbtn = document.createElement('button');
+  sbtn.className = 'btn btn-green btn-xs';
+  sbtn.textContent = '검색';
+  sr.appendChild(input); sr.appendChild(sbtn);
+
+  const resultsBox = document.createElement('div');
+  const doSearch = async () => {
+    if (!input.value.trim()) return;
+    sbtn.disabled = true; sbtn.textContent = '…';
+    const r = await send({ type: 'MANUAL_SEARCH', query: input.value });
+    sbtn.disabled = false; sbtn.textContent = '검색';
+    resultsBox.innerHTML = '';
+    for (const c of (r && r.results) || []) resultsBox.appendChild(candRow(c, pick));
+  };
+  sbtn.addEventListener('click', doSearch);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
+
+  const actions = document.createElement('div');
+  actions.className = 'ri-actions';
+  const skip = document.createElement('button');
+  skip.className = 'btn btn-ghost btn-xs';
+  skip.textContent = '건너뛰기';
+  skip.addEventListener('click', async () => {
+    const r = await send({ type: 'RESOLVE_REVIEW', itemId: item.id, uri: null });
+    if (r && r.ok) renderResult(r.state);
+  });
+  actions.appendChild(skip);
+
+  box.appendChild(sr);
+  box.appendChild(resultsBox);
+  box.appendChild(actions);
+  return box;
+}
+
+function renderReviewList(st) {
+  const list = els['review-list'];
+  list.innerHTML = '';
+  const items = st.review || [];
+  els['review-section'].classList.toggle('hidden', !items.length);
+  for (const it of items) list.appendChild(reviewItem(it, true));
+}
+function renderNotFoundList(st) {
+  const list = els['notfound-list'];
+  list.innerHTML = '';
+  const items = st.notFound || [];
+  els['notfound-section'].classList.toggle('hidden', !items.length);
+  for (const it of items) list.appendChild(reviewItem(it, it.candidates && it.candidates.length > 0));
 }
