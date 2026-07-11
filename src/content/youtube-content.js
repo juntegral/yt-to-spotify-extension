@@ -18,7 +18,64 @@ function extractVideoInfo() {
     channel: extractChannel(),
     url: location.origin + location.pathname + '?v=' + (new URLSearchParams(location.search).get('v') || ''),
     tracks: extractTracks(),
+    musicCards: extractMusicCards(), // 유튜브 자동 "음악" 섹션 (원제목·아티스트·앨범)
   };
+}
+
+// ---- 자동 "음악" 섹션: ytInitialData의 videoAttributeViewModel 카드 ----
+// (2026 현재 유튜브는 음악 카드를 horizontalCardListRenderer > videoAttributeViewModel로 렌더)
+function findYtInitialData() {
+  for (const s of document.querySelectorAll('script')) {
+    const t = s.textContent || '';
+    const i = t.indexOf('var ytInitialData = ');
+    if (i !== -1) {
+      const j = t.lastIndexOf('};');
+      if (j > i) {
+        try { return JSON.parse(t.slice(i + 'var ytInitialData = '.length, j + 1)); } catch (e) { /* noop */ }
+      }
+    }
+  }
+  return null;
+}
+
+function extractMusicCards() {
+  try {
+    const data = findYtInitialData();
+    if (!data) return [];
+    // SPA 전환으로 초기데이터가 이전 영상 것일 수 있음 → videoId 검증
+    const urlVid = new URLSearchParams(location.search).get('v');
+    const dataVid = data.currentVideoEndpoint && data.currentVideoEndpoint.watchEndpoint
+      ? data.currentVideoEndpoint.watchEndpoint.videoId : null;
+    if (urlVid && dataVid && urlVid !== dataVid) return [];
+
+    const cards = [];
+    (function walk(n) {
+      if (!n || typeof n !== 'object') return;
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      if (n.horizontalCardListRenderer) {
+        const h = n.horizontalCardListRenderer;
+        for (const c of h.cards || []) {
+          const v = c.videoAttributeViewModel;
+          if (v && v.title && v.subtitle) {
+            cards.push({
+              title: v.title,
+              artist: v.subtitle,
+              album: (v.secondarySubtitle && v.secondarySubtitle.content) || '',
+            });
+          }
+        }
+      }
+      for (const k in n) walk(n[k]);
+    })(data);
+
+    const seen = new Set();
+    return cards.filter((c) => {
+      const k = c.title + '|' + c.artist;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  } catch (e) { return []; }
 }
 
 function extractTitle() {
