@@ -1,81 +1,99 @@
-// popup.js — 팝업 UI 로직 (스켈레톤)
-// 실제 매칭/OAuth/API 호출은 service-worker.js와 이후 단계에서 구현.
+// popup.js — 팝업 UI 로직
+// Spotify 연결은 실제 동작(1단계). 트랙리스트는 아직 목업(파서는 다음 단계).
 
-const state = {
-  spotifyConnected: false,
-  video: null, // { title, channel, tracks: [...] }
-};
+const els = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
+  cacheEls();
   bindButtons();
+  await refreshAuthState();
   await loadCurrentVideo();
 });
 
+function cacheEls() {
+  els.connectBtn = document.getElementById('connect-btn');
+  els.status = document.getElementById('spotify-status');
+  els.convertBtn = document.getElementById('convert-btn');
+  els.videoTitle = document.getElementById('video-title');
+  els.videoChannel = document.getElementById('video-channel');
+}
+
 function bindButtons() {
-  const connectBtn = document.getElementById('connect-btn');
-  const convertBtn = document.getElementById('convert-btn');
-
-  connectBtn.addEventListener('click', onConnectClick);
-  convertBtn.addEventListener('click', onConvertClick);
+  els.connectBtn.addEventListener('click', onConnectClick);
+  els.convertBtn.addEventListener('click', onConvertClick);
 }
 
-// 현재 탭이 유튜브 영상이면 content script에서 정보 요청
-async function loadCurrentVideo() {
-  if (typeof chrome === 'undefined' || !chrome.tabs) return; // 미리보기 환경 방어
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab || !/^https:\/\/www\.youtube\.com\/watch/.test(tab.url || '')) {
-      // 유튜브 영상 페이지가 아니면 안내 (지금은 목업 데이터 유지)
-      return;
-    }
-    const info = await chrome.tabs.sendMessage(tab.id, { type: 'GET_VIDEO_INFO' });
-    if (info && info.title) {
-      state.video = info;
-      renderVideo(info);
-    }
-  } catch (err) {
-    // content script 미주입 등 — 지금은 조용히 목업 유지
-    console.debug('[popup] video info 로드 실패:', err);
-  }
+async function send(message) {
+  if (typeof chrome === 'undefined' || !chrome.runtime) return null; // 미리보기 방어
+  return chrome.runtime.sendMessage(message);
 }
 
-function renderVideo(info) {
-  document.getElementById('video-title').textContent = info.title;
-  document.getElementById('video-channel').textContent =
-    `${info.channel || ''}${info.tracks ? ` · ${info.tracks.length}곡 감지됨` : ''}`;
-  // TODO: info.tracks 로 #track-list 렌더링 (매칭 상태 포함)
+// --- Spotify 연결 상태 ---
+async function refreshAuthState() {
+  const res = await send({ type: 'GET_AUTH_STATE' });
+  if (res && res.connected) setConnectedUI(res.profile);
+  else setDisconnectedUI();
 }
 
-function onConnectClick() {
-  // TODO: service-worker에 Spotify OAuth(PKCE) 시작 요청
-  // chrome.runtime.sendMessage({ type: 'CONNECT_SPOTIFY' })
-  state.spotifyConnected = !state.spotifyConnected;
-  const status = document.getElementById('spotify-status');
-  const btn = document.getElementById('connect-btn');
-  if (state.spotifyConnected) {
-    status.textContent = '연결됨';
-    status.classList.add('on');
-    btn.textContent = '연결 해제';
-    btn.classList.remove('btn-green');
-    btn.classList.add('btn-outline');
-  } else {
-    status.textContent = '연결 안 됨';
-    status.classList.remove('on');
-    btn.textContent = '연결';
-    btn.classList.add('btn-green');
-    btn.classList.remove('btn-outline');
-  }
+function setConnectedUI(profile) {
+  els.status.textContent = profile && profile.name ? `연결됨 · ${profile.name}` : '연결됨';
+  els.status.classList.add('on');
+  els.connectBtn.textContent = '연결 해제';
+  els.connectBtn.classList.remove('btn-green');
+  els.connectBtn.classList.add('btn-outline');
+  els.connectBtn.dataset.connected = 'true';
 }
 
-function onConvertClick() {
-  if (!state.spotifyConnected) {
-    // TODO: 토스트/안내 UI
-    document.getElementById('spotify-status').textContent = '먼저 Spotify를 연결하세요';
+function setDisconnectedUI() {
+  els.status.textContent = '연결 안 됨';
+  els.status.classList.remove('on');
+  els.connectBtn.textContent = '연결';
+  els.connectBtn.classList.add('btn-green');
+  els.connectBtn.classList.remove('btn-outline');
+  els.connectBtn.dataset.connected = 'false';
+}
+
+async function onConnectClick() {
+  if (els.connectBtn.dataset.connected === 'true') {
+    await send({ type: 'DISCONNECT_SPOTIFY' });
+    setDisconnectedUI();
     return;
   }
-  // TODO: service-worker에 변환 요청
-  // chrome.runtime.sendMessage({ type: 'CONVERT', video: state.video })
-  const btn = document.getElementById('convert-btn');
-  btn.textContent = '변환 중…';
-  btn.disabled = true;
+  els.status.textContent = '연결 중…';
+  const res = await send({ type: 'CONNECT_SPOTIFY' });
+  if (res && res.ok) setConnectedUI(res.profile);
+  else els.status.textContent = '연결 실패: ' + ((res && res.error) || '알 수 없음');
+}
+
+async function onConvertClick() {
+  if (els.connectBtn.dataset.connected !== 'true') {
+    els.status.textContent = '먼저 Spotify를 연결하세요';
+    return;
+  }
+  els.convertBtn.textContent = '변환 중…';
+  els.convertBtn.disabled = true;
+  const res = await send({ type: 'CONVERT', video: window.__video || null });
+  if (!res || !res.ok) {
+    els.convertBtn.textContent = '재생목록으로 변환';
+    els.convertBtn.disabled = false;
+    els.status.textContent = (res && res.error) || '변환 실패';
+  }
+}
+
+// --- 현재 유튜브 영상 정보 ---
+async function loadCurrentVideo() {
+  if (typeof chrome === 'undefined' || !chrome.tabs) return;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !/^https:\/\/www\.youtube\.com\/watch/.test(tab.url || '')) return;
+    const info = await chrome.tabs.sendMessage(tab.id, { type: 'GET_VIDEO_INFO' });
+    if (info && info.title) {
+      window.__video = info;
+      els.videoTitle.textContent = info.title;
+      const n = info.tracks ? info.tracks.length : 0;
+      els.videoChannel.textContent = (info.channel || '') + (n ? ` · ${n}곡 감지됨` : '');
+    }
+  } catch (e) {
+    console.debug('[popup] 영상 정보 로드 실패(콘텐츠 스크립트 미주입 등):', e);
+  }
 }
