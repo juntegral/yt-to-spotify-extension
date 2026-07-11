@@ -40,7 +40,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: true, results: await manualSearch(message.query) });
           break;
         case 'CLEAR_CONVERT':
-          await chrome.storage.local.remove('convertState');
+          await chrome.storage.local.remove(['convertState', 'convertTabId']);
+          await setBadge('');
           sendResponse({ ok: true });
           break;
         default:
@@ -255,6 +256,14 @@ async function matchEntry(entry) {
 
 // ============ 변환 실행 (비동기, 상태는 storage) ============
 
+// 아이콘 배지: 팝업이 닫혀 있어도 진행률이 보이게
+async function setBadge(text, color) {
+  try {
+    await chrome.action.setBadgeText({ text: text || '' });
+    if (text) await chrome.action.setBadgeBackgroundColor({ color: color || '#1ed760' });
+  } catch (e) { /* noop */ }
+}
+
 let converting = false;
 
 function startConvert(video) {
@@ -265,6 +274,7 @@ function startConvert(video) {
   converting = true;
   runConvert(video).catch(async (e) => {
     await patchState({ status: 'error', error: String((e && e.message) || e) });
+    await setBadge('!', '#e05c5c');
   }).finally(() => { converting = false; });
   return { ok: true, started: true };
 }
@@ -302,6 +312,7 @@ async function runConvert(video) {
       processed: i + 1,
       added: auto, review, notFound,
     });
+    await setBadge(Math.round(((i + 1) / video.tracks.length) * 100) + '%');
   }
 
   // 2) 재생목록 생성 (이름 = 영상 제목, 중복 시 " (2)")
@@ -320,6 +331,7 @@ async function runConvert(video) {
     status: 'done', playlistId: pl.id, playlistName: name,
     playlistUrl: (pl.external_urls && pl.external_urls.spotify) || null,
   });
+  await setBadge('✓');
 }
 
 async function uniquePlaylistName(base) {

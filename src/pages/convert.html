@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>변환 진행상황 — YouTube → Spotify</title>
+  <style>
+    :root {
+      --bg: #121212; --surface: #181818; --surface-2: #242424; --surface-hover: #2a2a2a;
+      --green: #1ed760; --text: #ffffff; --muted: #b3b3b3;
+      --amber: #f0b232; --red: #e05c5c; --radius: 10px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg); color: var(--text); min-height: 100vh;
+      font-family: 'Circular Std', 'Circular', 'Helvetica Neue', Helvetica, Arial,
+        'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 620px; margin: 0 auto; padding: 36px 20px 60px; }
+    .hidden { display: none !important; }
+
+    .header { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; }
+    .badge {
+      width: 40px; height: 40px; border-radius: 50%; background: var(--green);
+      display: flex; align-items: center; justify-content: center;
+      color: #000; font-weight: 800; font-size: 19px; flex-shrink: 0;
+    }
+    .header h1 { font-size: 18px; font-weight: 700; }
+    .header p { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    .label {
+      font-size: 11.5px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.2px; color: var(--muted); margin: 22px 2px 10px;
+    }
+    .card { background: var(--surface); border-radius: var(--radius); padding: 16px; }
+    .video-title { font-size: 15px; font-weight: 600; line-height: 1.4; }
+
+    .progress-wrap { margin-top: 20px; }
+    .progress-text { font-size: 13px; color: var(--muted); margin-bottom: 8px; text-align: center; }
+    .progress-bar { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: var(--green); border-radius: 4px; transition: width 0.3s ease; }
+    .hint { text-align: center; font-size: 12px; color: var(--muted); margin-top: 14px; }
+
+    .summary { display: flex; gap: 10px; }
+    .stat { flex: 1; background: var(--surface); border-radius: var(--radius); padding: 14px 10px; text-align: center; }
+    .stat b { display: block; font-size: 22px; }
+    .stat span { font-size: 11px; color: var(--muted); }
+    .stat.g b { color: var(--green); } .stat.a b { color: var(--amber); } .stat.r b { color: var(--red); }
+
+    .open-link {
+      display: block; text-align: center; margin-top: 16px; padding: 13px;
+      background: var(--green); color: #000; border-radius: 500px;
+      font-size: 14px; font-weight: 700; text-decoration: none;
+      transition: transform 0.1s ease, background 0.2s ease;
+    }
+    .open-link:hover { background: #1fdf64; transform: scale(1.01); }
+
+    .review-item { background: var(--surface); border-radius: var(--radius); padding: 13px 15px; margin-bottom: 10px; }
+    .ri-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+    .ri-label { font-size: 13.5px; font-weight: 600; min-width: 0; flex: 1; }
+    .ri-time { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+    .cand { display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 8px; cursor: pointer; }
+    .cand:hover { background: var(--surface-hover); }
+    .cand-info { min-width: 0; flex: 1; }
+    .cand-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cand-sub { font-size: 11px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cand-dur { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+    .cand-add {
+      flex-shrink: 0; font-size: 11px; font-weight: 700; color: var(--green);
+      border: 1px solid var(--green); border-radius: 500px; padding: 4px 12px;
+    }
+    .cand:hover .cand-add { background: var(--green); color: #000; }
+
+    .btn {
+      font-family: inherit; border: none; cursor: pointer; font-weight: 700; border-radius: 500px;
+      transition: transform 0.1s ease, background 0.2s ease;
+    }
+    .btn:disabled { opacity: 0.55; cursor: default; }
+    .btn-xs { padding: 6px 14px; font-size: 11.5px; }
+    .btn-green { background: var(--green); color: #000; }
+    .btn-ghost { background: var(--surface-2); color: var(--muted); }
+    .btn-ghost:hover { color: var(--text); }
+    .cta { width: 100%; padding: 14px; font-size: 14px; margin-top: 22px; }
+
+    .ri-actions { display: flex; gap: 8px; margin-top: 10px; }
+    .search-row { display: flex; gap: 8px; margin-top: 10px; }
+    .search-row input {
+      flex: 1; background: var(--surface-2); border: 1px solid #3a3a3a; border-radius: 500px;
+      color: var(--text); font-family: inherit; font-size: 12.5px; padding: 9px 14px; outline: none;
+    }
+    .search-row input:focus { border-color: var(--muted); }
+
+    .empty-note { text-align: center; color: var(--muted); font-size: 13px; padding: 30px 0; }
+    .error-box { background: rgba(224,92,92,0.12); border: 1px solid var(--red); border-radius: var(--radius); padding: 14px; font-size: 13px; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div class="badge">&#8594;</div>
+      <div>
+        <h1>YouTube &rarr; Spotify 변환</h1>
+        <p id="sub">진행상황</p>
+      </div>
+    </div>
+
+    <div class="card"><div class="video-title" id="video-title">…</div></div>
+
+    <!-- 진행 중 -->
+    <div id="view-progress">
+      <div class="progress-wrap">
+        <div class="progress-text" id="prog-text">매칭 중…</div>
+        <div class="progress-bar"><div class="progress-fill" id="prog-fill"></div></div>
+      </div>
+      <div class="hint">이 탭은 열어두지 않아도 돼요 — 변환은 백그라운드에서 계속됩니다</div>
+    </div>
+
+    <!-- 에러 -->
+    <div id="view-error" class="hidden">
+      <div class="error-box" id="error-text"></div>
+    </div>
+
+    <!-- 결과 -->
+    <div id="view-result" class="hidden">
+      <div class="label">결과</div>
+      <div class="summary">
+        <div class="stat g"><b id="sum-added">0</b><span>자동 추가</span></div>
+        <div class="stat a"><b id="sum-review">0</b><span>확인 필요</span></div>
+        <div class="stat r"><b id="sum-notfound">0</b><span>못 찾음</span></div>
+      </div>
+      <a class="open-link hidden" id="playlist-link" target="_blank" rel="noopener">Spotify에서 재생목록 열기 ↗</a>
+
+      <div id="review-section" class="hidden">
+        <div class="label">확인 필요 — 맞는 곡을 선택하세요</div>
+        <div id="review-list"></div>
+      </div>
+
+      <div id="notfound-section" class="hidden">
+        <div class="label">못 찾음 — 직접 검색해서 추가하거나 건너뛰세요</div>
+        <div id="notfound-list"></div>
+      </div>
+
+      <div class="empty-note hidden" id="all-done">모든 곡 처리 완료 🎉</div>
+      <button class="btn btn-ghost cta" id="clear-btn">기록 지우기</button>
+    </div>
+  </div>
+
+  <script src="convert.js"></script>
+</body>
+</html>

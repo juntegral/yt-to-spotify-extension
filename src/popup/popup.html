@@ -7,8 +7,7 @@
   <style>
     :root {
       --bg: #121212; --surface: #181818; --surface-2: #242424; --surface-hover: #2a2a2a;
-      --green: #1ed760; --green-press: #1db954;
-      --text: #ffffff; --muted: #b3b3b3; --amber: #f0b232; --red: #e05c5c; --radius: 8px;
+      --green: #1ed760; --text: #ffffff; --muted: #b3b3b3; --amber: #f0b232; --radius: 8px;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html { background: #000; }
@@ -21,7 +20,7 @@
     .app { padding: 16px 16px 20px; }
     .hidden { display: none !important; }
 
-    .header { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+    .header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
     .badge {
       width: 34px; height: 34px; border-radius: 50%; background: var(--green);
       display: flex; align-items: center; justify-content: center;
@@ -29,6 +28,15 @@
     }
     .header h1 { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
     .header p { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+    /* 진행 중 배너 */
+    .banner {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      background: rgba(30,215,96,0.1); border: 1px solid rgba(30,215,96,0.4);
+      border-radius: var(--radius); padding: 10px 12px; margin-bottom: 14px;
+    }
+    .banner span { font-size: 12px; }
+    .banner b { color: var(--green); }
 
     .label {
       font-size: 11px; font-weight: 700; text-transform: uppercase;
@@ -72,13 +80,8 @@
     .btn-green:hover { background: #1fdf64; }
     .btn-outline { background: transparent; color: var(--text); border: 1px solid #535353; }
     .btn-outline:hover { border-color: var(--text); }
-    .btn-ghost { background: var(--surface-2); color: var(--muted); }
-    .btn-ghost:hover { color: var(--text); }
 
-    .tracklist {
-      background: var(--surface); border-radius: var(--radius);
-      max-height: 176px; overflow-y: auto;
-    }
+    .tracklist { background: var(--surface); border-radius: var(--radius); max-height: 176px; overflow-y: auto; }
     .track { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
     .track:last-child { border-bottom: none; }
     .track-idx { font-size: 11px; color: var(--muted); width: 16px; text-align: right; flex-shrink: 0; }
@@ -88,45 +91,10 @@
     .tl-empty { padding: 22px 14px; text-align: center; font-size: 12px; color: var(--muted); line-height: 1.5; white-space: pre-line; }
 
     .cta { width: 100%; padding: 14px; font-size: 14px; margin-top: 14px; }
-
-    /* 진행률 */
-    .progress-wrap { margin-top: 14px; }
-    .progress-text { font-size: 12px; color: var(--muted); margin-bottom: 6px; text-align: center; }
-    .progress-bar { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
-    .progress-fill { height: 100%; width: 0%; background: var(--green); border-radius: 3px; transition: width 0.3s ease; }
-
-    /* 결과 요약 */
-    .summary { display: flex; gap: 8px; margin-top: 4px; }
-    .stat { flex: 1; background: var(--surface); border-radius: var(--radius); padding: 10px 8px; text-align: center; }
-    .stat b { display: block; font-size: 17px; }
-    .stat span { font-size: 10.5px; color: var(--muted); }
-    .stat.g b { color: var(--green); } .stat.a b { color: var(--amber); } .stat.r b { color: var(--red); }
-    .open-link { display: block; text-align: center; margin-top: 12px; color: var(--green); font-size: 12.5px; font-weight: 700; text-decoration: none; }
-    .open-link:hover { text-decoration: underline; }
-
-    /* 검토/수동 항목 */
-    .review-item { background: var(--surface); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; }
-    .ri-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .ri-label { font-size: 12.5px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-    .ri-time { font-size: 10.5px; color: var(--muted); flex-shrink: 0; }
-    .cand { display: flex; align-items: center; gap: 8px; padding: 7px 4px; border-radius: 6px; cursor: pointer; }
-    .cand:hover { background: var(--surface-hover); }
-    .cand-info { min-width: 0; flex: 1; }
-    .cand-name { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .cand-sub { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .cand-dur { font-size: 10.5px; color: var(--muted); flex-shrink: 0; }
-    .ri-actions { display: flex; gap: 6px; margin-top: 8px; }
-    .search-row { display: flex; gap: 6px; margin-top: 8px; }
-    .search-row input {
-      flex: 1; background: var(--surface-2); border: 1px solid #3a3a3a; border-radius: 500px;
-      color: var(--text); font-family: inherit; font-size: 12px; padding: 7px 12px; outline: none;
-    }
-    .search-row input:focus { border-color: var(--muted); }
-
-    .footer { display: flex; justify-content: center; gap: 6px; margin-top: 14px; font-size: 11px; color: var(--muted); min-height: 14px; }
+    .footer { display: flex; justify-content: center; gap: 6px; margin-top: 12px; font-size: 11px; color: var(--muted); min-height: 14px; }
     .footer b { color: var(--text); font-weight: 600; }
 
-    .tracklist::-webkit-scrollbar, .review-list::-webkit-scrollbar { width: 8px; }
+    .tracklist::-webkit-scrollbar { width: 8px; }
     .tracklist::-webkit-scrollbar-thumb { background: #4d4d4d; border-radius: 4px; }
   </style>
 </head>
@@ -140,72 +108,41 @@
       </div>
     </div>
 
-    <!-- ===== 기본 화면 ===== -->
-    <div id="view-main">
-      <div class="label">감지된 영상</div>
-      <div class="card">
-        <div class="video">
-          <div class="thumb" id="thumb">
-            <svg id="thumb-ph" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M8 5v14l11-7L8 5z" fill="#b3b3b3"/></svg>
-            <img id="thumb-img" alt="" hidden />
-          </div>
-          <div class="video-meta">
-            <div class="video-title" id="video-title">영상을 확인하는 중…</div>
-            <div class="video-channel" id="video-channel"></div>
-          </div>
+    <!-- 진행 중/결과 대기 배너 -->
+    <div class="banner hidden" id="banner">
+      <span id="banner-text">변환 진행 중…</span>
+      <button class="btn btn-green btn-xs" id="banner-btn">상태 보기</button>
+    </div>
+
+    <div class="label">감지된 영상</div>
+    <div class="card">
+      <div class="video">
+        <div class="thumb">
+          <svg id="thumb-ph" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M8 5v14l11-7L8 5z" fill="#b3b3b3"/></svg>
+          <img id="thumb-img" alt="" hidden />
+        </div>
+        <div class="video-meta">
+          <div class="video-title" id="video-title">영상을 확인하는 중…</div>
+          <div class="video-channel" id="video-channel"></div>
         </div>
       </div>
-
-      <div class="connect">
-        <div class="connect-left">
-          <span>Spotify 계정</span>
-          <span class="connect-status" id="spotify-status">연결 안 됨</span>
-        </div>
-        <button class="btn btn-green btn-sm" id="connect-btn">연결</button>
-      </div>
-
-      <div class="label">트랙리스트</div>
-      <div class="tracklist" id="track-list">
-        <div class="tl-empty">트랙리스트를 읽는 중…</div>
-      </div>
-
-      <button class="btn btn-green cta" id="convert-btn">재생목록으로 변환</button>
-      <div class="footer" id="stats"></div>
     </div>
 
-    <!-- ===== 변환 중 ===== -->
-    <div id="view-progress" class="hidden">
-      <div class="card"><div class="video-title" id="prog-title"></div></div>
-      <div class="progress-wrap">
-        <div class="progress-text" id="prog-text">매칭 중…</div>
-        <div class="progress-bar"><div class="progress-fill" id="prog-fill"></div></div>
+    <div class="connect">
+      <div class="connect-left">
+        <span>Spotify 계정</span>
+        <span class="connect-status" id="spotify-status">연결 안 됨</span>
       </div>
-      <div class="footer">팝업을 닫아도 변환은 계속 진행돼요</div>
+      <button class="btn btn-green btn-sm" id="connect-btn">연결</button>
     </div>
 
-    <!-- ===== 결과 ===== -->
-    <div id="view-result" class="hidden">
-      <div class="card"><div class="video-title" id="res-title"></div></div>
-      <div class="label">결과</div>
-      <div class="summary">
-        <div class="stat g"><b id="sum-added">0</b><span>자동 추가</span></div>
-        <div class="stat a"><b id="sum-review">0</b><span>확인 필요</span></div>
-        <div class="stat r"><b id="sum-notfound">0</b><span>못 찾음</span></div>
-      </div>
-      <a class="open-link" id="playlist-link" target="_blank" rel="noopener">Spotify에서 재생목록 열기 ↗</a>
-
-      <div id="review-section">
-        <div class="label">확인 필요 — 맞는 곡을 선택하세요</div>
-        <div id="review-list"></div>
-      </div>
-
-      <div id="notfound-section">
-        <div class="label">못 찾음 — 직접 검색해서 추가</div>
-        <div id="notfound-list"></div>
-      </div>
-
-      <button class="btn btn-ghost cta" id="done-btn">새 변환 시작</button>
+    <div class="label">트랙리스트</div>
+    <div class="tracklist" id="track-list">
+      <div class="tl-empty">트랙리스트를 읽는 중…</div>
     </div>
+
+    <button class="btn btn-green cta" id="convert-btn">재생목록으로 변환</button>
+    <div class="footer" id="stats"></div>
   </div>
 
   <script src="popup.js"></script>

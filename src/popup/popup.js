@@ -1,65 +1,60 @@
-// popup.js — 팝업 UI
-// 연결(1단계) + 트랙리스트(2단계) + 변환·검토·수동검색(3~5단계).
-// 변환은 서비스 워커에서 진행 → 여기서는 상태 폴링/렌더만.
+// popup.js — 팝업은 "시작점"만 담당: 영상 감지 + Spotify 연결 + 변환 시작.
+// 진행/결과/검토는 전용 탭(src/pages/convert.html)에서 — 팝업은 포커스를 잃으면
+// 닫히는 크롬 특성 때문에 긴 작업 UI를 두지 않는다.
 
 const els = {};
-let pollTimer = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
-  cacheEls();
-  bind();
-  await refreshAuthState();
-  const st = await getConvertState();
-  if (st && st.status === 'running') { showView('progress'); renderProgress(st); startPolling(); }
-  else if (st && st.status === 'done' && (st.review.length || st.notFound.length)) {
-    showView('result'); renderResult(st);
-  } else {
-    showView('main');
-    await loadCurrentVideo();
-  }
-});
-
-function cacheEls() {
-  ['view-main', 'view-progress', 'view-result', 'connect-btn', 'spotify-status', 'convert-btn',
-   'video-title', 'video-channel', 'track-list', 'stats', 'thumb-img', 'thumb-ph',
-   'prog-title', 'prog-text', 'prog-fill', 'res-title', 'sum-added', 'sum-review', 'sum-notfound',
-   'playlist-link', 'review-section', 'review-list', 'notfound-section', 'notfound-list', 'done-btn']
+  ['banner', 'banner-text', 'banner-btn', 'connect-btn', 'spotify-status', 'convert-btn',
+   'video-title', 'video-channel', 'track-list', 'stats', 'thumb-img', 'thumb-ph']
     .forEach((id) => { els[id] = document.getElementById(id); });
-}
 
-function bind() {
   els['connect-btn'].addEventListener('click', onConnect);
   els['convert-btn'].addEventListener('click', onConvert);
-  els['done-btn'].addEventListener('click', async () => {
-    await send({ type: 'CLEAR_CONVERT' });
-    showView('main');
-    await loadCurrentVideo();
-  });
-}
+  els['banner-btn'].addEventListener('click', openConvertTab);
+
+  await refreshAuthState();
+  await refreshBanner();
+  await loadCurrentVideo();
+});
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function send(msg) {
   if (typeof chrome === 'undefined' || !chrome.runtime) return null;
   try { return await chrome.runtime.sendMessage(msg); } catch (e) { return { ok: false, error: String(e) }; }
 }
-async function getConvertState() {
+
+// ===== 진행 배너 =====
+async function refreshBanner() {
   const r = await send({ type: 'GET_CONVERT_STATE' });
-  return r && r.ok ? r.state : null;
-}
-function showView(name) {
-  for (const v of ['main', 'progress', 'result']) {
-    els['view-' + v].classList.toggle('hidden', v !== name);
+  const st = r && r.ok ? r.state : null;
+  if (!st) { els['banner'].classList.add('hidden'); return; }
+  const pending = (st.review || []).length + (st.notFound || []).length;
+  if (st.status === 'running') {
+    els['banner-text'].innerHTML = `변환 중 <b>${st.processed}/${st.total}</b>`;
+    els['banner'].classList.remove('hidden');
+  } else if (st.status === 'done' && pending > 0) {
+    els['banner-text'].innerHTML = `<b>${pending}곡</b> 확인 대기 중`;
+    els['banner'].classList.remove('hidden');
+  } else {
+    els['banner'].classList.add('hidden');
   }
 }
-const fmtDur = (ms) => {
-  const s = Math.round(ms / 1000);
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-};
 
-// ===== 연결 =====
+async function openConvertTab() {
+  const url = chrome.runtime.getURL('src/pages/convert.html');
+  const { convertTabId } = await chrome.storage.local.get('convertTabId');
+  if (convertTabId != null) {
+    try { await chrome.tabs.update(convertTabId, { active: true }); return; } catch (e) { /* 탭 닫힘 */ }
+  }
+  const tab = await chrome.tabs.create({ url });
+  await chrome.storage.local.set({ convertTabId: tab.id });
+}
+
+// ===== Spotify 연결 =====
 async function refreshAuthState() {
   const r = await send({ type: 'GET_AUTH_STATE' });
-  if (r && r.connected) setConn(true, r.profile); else setConn(false);
+  setConn(!!(r && r.connected), r && r.profile);
 }
 function setConn(on, profile) {
   const st = els['spotify-status'], btn = els['connect-btn'];
@@ -156,134 +151,17 @@ function getVideoId(url) {
   } catch (e) { return null; }
 }
 
-// ===== 변환 =====
+// ===== 변환 시작 → 전용 탭 열기 =====
 async function onConvert() {
   if (!els['connect-btn'].dataset.on) { els['spotify-status'].textContent = '먼저 Spotify를 연결하세요'; return; }
   const video = window.__video;
   if (!video || !video.tracks || !video.tracks.length) return;
+  els['convert-btn'].disabled = true;
   const r = await send({ type: 'CONVERT', video });
-  if (!r || !r.ok) { els['stats'].textContent = (r && r.error) || '변환 시작 실패'; return; }
-  els['prog-title'].textContent = video.title;
-  showView('progress');
-  startPolling();
-}
-function startPolling() {
-  stopPolling();
-  pollTimer = setInterval(async () => {
-    const st = await getConvertState();
-    if (!st) return;
-    if (st.status === 'running') renderProgress(st);
-    else {
-      stopPolling();
-      if (st.status === 'done') { showView('result'); renderResult(st); }
-      else { showView('main'); els['stats'].textContent = '변환 실패: ' + (st.error || '?'); }
-    }
-  }, 700);
-}
-function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
-function renderProgress(st) {
-  els['prog-title'].textContent = st.videoTitle || '';
-  els['prog-text'].textContent = `매칭 중… ${st.processed}/${st.total}`;
-  els['prog-fill'].style.width = (st.total ? Math.round((st.processed / st.total) * 100) : 0) + '%';
-}
-
-// ===== 결과/검토 =====
-function renderResult(st) {
-  els['res-title'].textContent = st.videoTitle || '';
-  els['sum-added'].textContent = (st.added || []).length;
-  els['sum-review'].textContent = (st.review || []).length;
-  els['sum-notfound'].textContent = (st.notFound || []).length;
-  if (st.playlistUrl) { els['playlist-link'].href = st.playlistUrl; els['playlist-link'].classList.remove('hidden'); }
-  else els['playlist-link'].classList.add('hidden');
-
-  renderReviewList(st);
-  renderNotFoundList(st);
-}
-
-function candRow(c, onPick) {
-  const row = document.createElement('div');
-  row.className = 'cand';
-  row.innerHTML = `<div class="cand-info"><div class="cand-name"></div><div class="cand-sub"></div></div><span class="cand-dur"></span>`;
-  row.querySelector('.cand-name').textContent = c.name;
-  const albumBits = [c.artists.join(', '), c.album && c.album.name, c.album && c.album.releaseDate ? String(c.album.releaseDate).slice(0, 4) : null]
-    .filter(Boolean).join(' · ');
-  row.querySelector('.cand-sub').textContent = albumBits;
-  row.querySelector('.cand-dur').textContent = c.durationMs ? fmtDur(c.durationMs) : '';
-  row.addEventListener('click', () => onPick(c));
-  return row;
-}
-
-function reviewItem(item, withCandidates) {
-  const box = document.createElement('div');
-  box.className = 'review-item';
-  const head = document.createElement('div');
-  head.className = 'ri-head';
-  head.innerHTML = `<div class="ri-label"></div><span class="ri-time"></span>`;
-  head.querySelector('.ri-label').textContent = item.label;
-  head.querySelector('.ri-time').textContent = item.time || '';
-  box.appendChild(head);
-
-  const pick = async (c) => {
-    box.style.opacity = '0.5';
-    const r = await send({ type: 'RESOLVE_REVIEW', itemId: item.id, uri: c.uri });
-    if (r && r.ok) renderResult(r.state);
-    else box.style.opacity = '1';
-  };
-
-  if (withCandidates && item.candidates && item.candidates.length) {
-    for (const c of item.candidates) box.appendChild(candRow(c, pick));
+  if (!r || !r.ok) {
+    els['convert-btn'].disabled = false;
+    els['stats'].textContent = (r && r.error) || '변환 시작 실패';
+    return;
   }
-
-  // 수동 검색 줄
-  const sr = document.createElement('div');
-  sr.className = 'search-row';
-  const input = document.createElement('input');
-  input.placeholder = 'Spotify에서 직접 검색…';
-  const sbtn = document.createElement('button');
-  sbtn.className = 'btn btn-green btn-xs';
-  sbtn.textContent = '검색';
-  sr.appendChild(input); sr.appendChild(sbtn);
-
-  const resultsBox = document.createElement('div');
-  const doSearch = async () => {
-    if (!input.value.trim()) return;
-    sbtn.disabled = true; sbtn.textContent = '…';
-    const r = await send({ type: 'MANUAL_SEARCH', query: input.value });
-    sbtn.disabled = false; sbtn.textContent = '검색';
-    resultsBox.innerHTML = '';
-    for (const c of (r && r.results) || []) resultsBox.appendChild(candRow(c, pick));
-  };
-  sbtn.addEventListener('click', doSearch);
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
-
-  const actions = document.createElement('div');
-  actions.className = 'ri-actions';
-  const skip = document.createElement('button');
-  skip.className = 'btn btn-ghost btn-xs';
-  skip.textContent = '건너뛰기';
-  skip.addEventListener('click', async () => {
-    const r = await send({ type: 'RESOLVE_REVIEW', itemId: item.id, uri: null });
-    if (r && r.ok) renderResult(r.state);
-  });
-  actions.appendChild(skip);
-
-  box.appendChild(sr);
-  box.appendChild(resultsBox);
-  box.appendChild(actions);
-  return box;
-}
-
-function renderReviewList(st) {
-  const list = els['review-list'];
-  list.innerHTML = '';
-  const items = st.review || [];
-  els['review-section'].classList.toggle('hidden', !items.length);
-  for (const it of items) list.appendChild(reviewItem(it, true));
-}
-function renderNotFoundList(st) {
-  const list = els['notfound-list'];
-  list.innerHTML = '';
-  const items = st.notFound || [];
-  els['notfound-section'].classList.toggle('hidden', !items.length);
-  for (const it of items) list.appendChild(reviewItem(it, it.candidates && it.candidates.length > 0));
+  await openConvertTab(); // 탭이 열리면 팝업은 자연히 닫힘 (정상)
 }
