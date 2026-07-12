@@ -13,12 +13,16 @@ if (!window.__ytSpotifyContentLoaded) {
 }
 
 function extractVideoInfo() {
+  const tracks = extractTracks();
+  let musicCards = extractMusicCards(); // 유튜브 자동 "음악" 섹션 (원제목·아티스트·앨범)
+  // 트랙 자체가 음악카드에서 유래했으면 정렬용 카드는 불필요(중복 매칭 방지)
+  if (tracks.length && tracks[0] && tracks[0].source === 'music-card') musicCards = [];
   return {
     title: extractTitle(),
     channel: extractChannel(),
     url: location.origin + location.pathname + '?v=' + (new URLSearchParams(location.search).get('v') || ''),
-    tracks: extractTracks(),
-    musicCards: extractMusicCards(), // 유튜브 자동 "음악" 섹션 (원제목·아티스트·앨범)
+    tracks,
+    musicCards,
   };
 }
 
@@ -88,10 +92,50 @@ function extractChannel() {
   return (el?.textContent || '').trim();
 }
 
+// 소스 폴백 체인: 설명란 타임스탬프 → 유튜브 챕터 → 자동감지 음악카드 → DOM 음악섹션.
+// "트랙리스트 없는" 영상(챕터만 있거나 유튜브 자동감지만 되는 경우)도 커버(Method B).
 function extractTracks() {
-  const fromMusic = extractMusicSection();        // 우선(원제목)
-  const fromDesc = extractDescriptionTracklist();  // 보조(번역 가능)
-  return mergeTrackSources(fromMusic, fromDesc);
+  const fromDesc = extractDescriptionTracklist();
+  if (fromDesc.length >= 3) return fromDesc;
+
+  if (typeof parseChapterList === 'function') {
+    const fromChapters = parseChapterList(extractChapters());
+    if (fromChapters.length >= 3) return fromChapters;
+  }
+  if (typeof tracksFromMusicCards === 'function') {
+    const fromCards = tracksFromMusicCards(extractMusicCards());
+    if (fromCards.length >= 1) return fromCards;
+  }
+  return extractMusicSection(); // 최후 보조(best-effort DOM)
+}
+
+// ---- 유튜브 챕터: ytInitialData의 chapterRenderer ----
+function extractChapters() {
+  try {
+    const data = findYtInitialData();
+    if (!data) return [];
+    const urlVid = new URLSearchParams(location.search).get('v');
+    const dataVid = data.currentVideoEndpoint && data.currentVideoEndpoint.watchEndpoint
+      ? data.currentVideoEndpoint.watchEndpoint.videoId : null;
+    if (urlVid && dataVid && urlVid !== dataVid) return []; // SPA 전환 잔여 데이터 방지
+
+    const out = [];
+    (function walk(n) {
+      if (!n || typeof n !== 'object') return;
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      const c = n.chapterRenderer;
+      if (c) {
+        const title = (c.title && (c.title.simpleText ||
+          (c.title.runs && c.title.runs.map((r) => r.text).join('')))) || '';
+        const ms = c.timeRangeStartMillis;
+        if (title && ms != null) out.push({ title, startSec: Math.round(Number(ms) / 1000) });
+      }
+      for (const k in n) walk(n[k]);
+    })(data);
+
+    const seen = new Set();
+    return out.filter((c) => { if (seen.has(c.startSec)) return false; seen.add(c.startSec); return true; });
+  } catch (e) { return []; }
 }
 
 // 설명란 → 파서. DOM 텍스트(전환 시 최신) 우선, 부족하면 초기데이터로 보강.
