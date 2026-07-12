@@ -41,6 +41,8 @@ async function handleMessage(message, sender) {
       return { ok: true, state: (await chrome.storage.local.get('convertState')).convertState || null };
     case 'RESOLVE_REVIEW':
       return { ok: true, state: await resolveReview(message.itemId, message.uri) };
+    case 'UNDO_RESOLVE':
+      return { ok: true, state: await undoResolve() };
     case 'MANUAL_SEARCH':
       return { ok: true, results: await manualSearch(message.query) };
     case 'CLEAR_CONVERT':
@@ -184,6 +186,8 @@ async function apiFetch(path, init, attempt) {
 const apiGet = (p) => apiFetch(p);
 const apiPost = (p, body) =>
   apiFetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const apiDelete = (p, body) =>
+  apiFetch(p, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 function isRateLimit(e) { return /요청 한도/.test(String((e && e.message) || e)); }
 
@@ -520,17 +524,45 @@ async function resolveReview(itemId, uri) {
   const { convertState: st } = await chrome.storage.local.get('convertState');
   if (!st || !st.playlistId) throw new Error('진행 중인 변환 결과가 없습니다');
 
-  const pick = (arr) => (arr || []).find((x) => x.id === itemId);
-  const item = pick(st.review) || pick(st.notFound);
+  const inReview = (st.review || []).some((x) => x.id === itemId);
+  const from = inReview ? 'review' : 'notFound';
+  const item = (st[from] || []).find((x) => x.id === itemId);
   if (!item) throw new Error('항목을 찾을 수 없습니다');
 
   if (uri) {
     await apiPost(`/playlists/${st.playlistId}/items`, { uris: [uri] }); // 2026-02 이관
     st.added.push({ ...item, resolvedUri: uri });
+  } else {
+    (st.skipped = st.skipped || []).push(item);
   }
   st.review = (st.review || []).filter((x) => x.id !== itemId);
   st.notFound = (st.notFound || []).filter((x) => x.id !== itemId);
-  if (uri == null) (st.skipped = st.skipped || []).push(item);
+  st.lastResolve = { itemId, uri: uri || null, from }; // 되돌리기 1단계
+  await chrome.storage.local.set({ convertState: st });
+  return st;
+}
+
+// 마지막 검토 처리(추가/건너뛰기)를 한 단계 되돌린다.
+async function undoResolve() {
+  const { convertState: st } = await chrome.storage.local.get('convertState');
+  if (!st) throw new Error('진행 중인 변환이 없습니다');
+  const lr = st.lastResolve;
+  if (!lr) throw new Error('되돌릴 작업이 없습니다');
+
+  let item = null;
+  if (lr.uri) {
+    const idx = (st.added || []).findIndex((x) => x.id === lr.itemId && x.resolvedUri === lr.uri);
+    if (idx >= 0) { item = st.added[idx]; st.added.splice(idx, 1); }
+    try { await apiDelete(`/playlists/${st.playlistId}/tracks`, { tracks: [{ uri: lr.uri }] }); } catch (e) { /* best-effort */ }
+  } else {
+    const idx = (st.skipped || []).findIndex((x) => x.id === lr.itemId);
+    if (idx >= 0) { item = st.skipped[idx]; st.skipped.splice(idx, 1); }
+  }
+  if (item) {
+    const { resolvedUri, ...orig } = item; // resolvedUri 제거하고 원래 리스트로 복원
+    (st[lr.from] = st[lr.from] || []).unshift(orig);
+  }
+  st.lastResolve = null;
   await chrome.storage.local.set({ convertState: st });
   return st;
 }

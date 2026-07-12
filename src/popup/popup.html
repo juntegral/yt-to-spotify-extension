@@ -1,150 +1,560 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="ko" data-service="spotify" data-state="disconnected">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>YouTube → Spotify 변환기</title>
-  <style>
-    :root {
-      --bg: #121212; --surface: #181818; --surface-2: #242424; --surface-hover: #2a2a2a;
-      --green: #1ed760; --text: #ffffff; --muted: #b3b3b3; --amber: #f0b232; --radius: 8px;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html { background: #000; }
-    body {
-      width: 380px; margin: 0 auto; background: var(--bg); color: var(--text);
-      font-family: 'Circular Std', 'Circular', 'Helvetica Neue', Helvetica, Arial,
-        'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
-      -webkit-font-smoothing: antialiased;
-    }
-    .app { padding: 16px 16px 20px; }
-    .hidden { display: none !important; }
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MIXTAPE — 재생목록으로 변환</title>
 
-    .header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-    .badge {
-      width: 34px; height: 34px; border-radius: 50%; background: var(--green);
-      display: flex; align-items: center; justify-content: center;
-      color: #000; font-weight: 800; font-size: 16px; flex-shrink: 0;
-    }
-    .header h1 { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
-    .header p { font-size: 11px; color: var(--muted); margin-top: 1px; }
+<!-- ─────────────────────────────────────────────────────────────
+  MIXTAPE · 팝업 (380px 고정)
+  디자인 시스템: Spotify 모드 = 아트 워시 딥블랙 / Apple Music 모드 = 레드 라이트 글라스
+  · 테마 전환: html[data-service="spotify" | "apple"]  (popup.js가 토글·저장)
+  · 상태:     html[data-state="ready|running|review|disconnected|empty|error"]
+  · MV3: 인라인 스크립트 없음 — 모든 동작은 popup.js
+  · 폰트: 프로덕션은 fonts/PretendardVariable.woff2 셀프호스팅(아래 @font-face).
+          아래 CDN <link>는 **디자인 프리뷰 전용** — 스토어 빌드에서 제거.
+────────────────────────────────────────────────────────────── -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" data-preview-only />
 
-    /* 진행 중 배너 */
-    .banner {
-      display: flex; align-items: center; justify-content: space-between; gap: 10px;
-      background: rgba(30,215,96,0.1); border: 1px solid rgba(30,215,96,0.4);
-      border-radius: var(--radius); padding: 10px 12px; margin-bottom: 14px;
-    }
-    .banner span { font-size: 12px; }
-    .banner b { color: var(--green); }
+<style>
+@font-face {
+  font-family: "Pretendard Variable";
+  src: url("../assets/fonts/PretendardVariable.woff2") format("woff2");
+  font-weight: 45 920; font-display: swap;
+}
+/* ═══════════════════ 0. 폰트 (셀프호스팅) ═══════════════════ */
+/* 단일 가변 파일(wght 45~920) — 정적 합본 대비 30–50% 작음. 12px 캡션부터
+   46px 디스플레이까지 한 파일. 빌드 시 fonts/PretendardVariable.woff2 번들. */
+@font-face {
+  font-family: "Pretendard Local";
+  src: url("fonts/PretendardVariable.woff2") format("woff2-variations");
+  font-weight: 45 920;
+  font-display: swap;
+}
 
-    .label {
-      font-size: 11px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 1.2px; color: var(--muted); margin: 14px 2px 8px;
-    }
-    .label:first-of-type { margin-top: 0; }
+/* ═══════════════════ 1. 디자인 토큰 ═══════════════════ */
+:root {
+  /* ── 콘텐츠에서 온 색: 영상/앨범아트 팔레트 (런타임에 node-vibrant가 --wash를 갱신) ── */
+  --wash: 80 64 143;            /* '별이 쏟아진 날' 썸네일 → 밤하늘 보라. 장식 전용, 텍스트엔 불사용 */
 
-    .card { background: var(--surface); border-radius: var(--radius); padding: 12px; }
-    .video { display: flex; gap: 12px; }
-    .thumb {
-      width: 96px; height: 54px; border-radius: 6px; flex-shrink: 0; overflow: hidden;
-      background: var(--surface-2); display: flex; align-items: center; justify-content: center;
-    }
-    .thumb svg { width: 26px; height: 26px; opacity: 0.5; }
-    .thumb img { width: 100%; height: 100%; object-fit: cover; }
-    .video-meta { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
-    .video-title {
-      font-size: 13px; font-weight: 600; line-height: 1.35;
-      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-    }
-    .video-channel { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  /* ── Spotify 모드 (기본): 딥블랙 + 아트 워시 ── */
+  --bg: #0d0d0d;
+  --card: #171717;
+  --card-line: #262626;
+  --raise: #222222;             /* 입력·인셋 표면 */
+  --hover: rgba(255,255,255,.06);
+  --t1: #ffffff;                /* 텍스트는 항상 고정 고대비 (WCAG 4.5:1+) */
+  --t2: #b3b3b3;
+  --t3: #7b7b7b;
+  --line: #272727;              /* 헤어라인 */
+  --acc: #1ed760;
+  --on-acc: #001a09;
+  --acc-dim: rgba(30,215,96,.12);
+  --warn: #e8a33d;              /* 확인 필요 */
+  --miss: #e4586a;              /* 못 찾음 */
+  --yt: #ff5147;                /* YouTube 원본 틱 */
+  --knob: #3a3a3a;
+  --seg-bg: rgba(255,255,255,.09);
+  --btn-line: #565656;
+  --rad-s: 7px; --rad: 10px; --rad-l: 14px;
+  --panel-blur: 0px;                              /* Spotify 모드: 유리 없음(플랫) */
+  --panel-sh: none;
+  --sh-thumb: 0 14px 34px rgb(var(--wash) / .38); /* 아트 색은 그림자·워시 등 장식에만 */
+  --sh-cta: 0 10px 24px rgba(0,0,0,.42);
+  --sh-knob: 0 2px 8px rgba(0,0,0,.4);
+  --grain-op: .05; --grain-blend: overlay;
 
-    .connect {
-      display: flex; align-items: center; justify-content: space-between;
-      background: var(--surface); border-radius: var(--radius); padding: 12px 14px; margin-top: 14px;
-    }
-    .connect-left { display: flex; flex-direction: column; }
-    .connect-left span:first-child { font-size: 13px; font-weight: 600; }
-    .connect-status { font-size: 11px; color: var(--muted); margin-top: 2px; }
-    .connect-status.on { color: var(--green); }
+  /* 모션 — 레이어드 파워 커브 (linear/기본 이징 금지) */
+  --ease-out: cubic-bezier(.22,.7,.3,1);
+  --ease-io: cubic-bezier(.45,0,.2,1);
+  --ease-pop: cubic-bezier(.34,1.18,.4,1);        /* 상태 숫자 펄스 전용 미세 오버슛 */
+  --t-fast: .15s; --t-med: .32s; --t-theme: .5s;
+}
 
-    .btn {
-      font-family: inherit; border: none; cursor: pointer; font-weight: 700; border-radius: 500px;
-      transition: transform 0.1s ease, background 0.2s ease;
-    }
-    .btn:active { transform: scale(0.98); }
-    .btn:disabled { opacity: 0.55; cursor: default; }
-    .btn-sm { padding: 8px 18px; font-size: 12px; }
-    .btn-xs { padding: 5px 12px; font-size: 11px; }
-    .btn-green { background: var(--green); color: #000; }
-    .btn-green:hover { background: #1fdf64; }
-    .btn-outline { background: transparent; color: var(--text); border: 1px solid #535353; }
-    .btn-outline:hover { border-color: var(--text); }
+/* ── Apple Music 모드: 레드 라이트 글라스 (유리는 이 모드의 네이티브 재질로만) ── */
+html[data-service="apple"] {
+  --bg: #f5f2f3;
+  --card: rgba(255,255,255,.62);
+  --card-line: rgba(255,255,255,.85);
+  --raise: rgba(29,29,31,.06);
+  --hover: rgba(29,29,31,.05);
+  --t1: #1d1d1f;
+  --t2: #514f55;
+  --t3: #6f6f76;
+  --line: rgba(29,29,31,.11);
+  --acc: #e11b37;               /* Apple Music 레드 — 흰 글자 대비 4.8:1 */
+  --on-acc: #ffffff;
+  --acc-dim: rgba(225,27,55,.1);
+  --warn: #9c6a04;
+  --miss: #c0244a;
+  --yt: #d61f31;
+  --knob: #ffffff;
+  --seg-bg: rgba(29,29,31,.08);
+  --btn-line: rgba(29,29,31,.28);
+  --rad-s: 8px; --rad: 12px; --rad-l: 16px;
+  --panel-blur: 26px;
+  --panel-sh: inset 0 1px 0 rgba(255,255,255,.9), 0 12px 34px rgba(190,40,70,.13), 0 2px 8px rgba(0,0,0,.05);
+  --sh-thumb: 0 14px 32px rgba(190,40,70,.26);
+  --sh-cta: 0 10px 26px rgba(225,27,55,.32);
+  --sh-knob: 0 3px 10px rgba(0,0,0,.16), inset 0 1px 0 rgba(255,255,255,.9);
+  --grain-op: .04; --grain-blend: soft-light;
+}
 
-    .tracklist { background: var(--surface); border-radius: var(--radius); max-height: 176px; overflow-y: auto; }
-    .track { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
-    .track:last-child { border-bottom: none; }
-    .track-idx { font-size: 11px; color: var(--muted); width: 16px; text-align: right; flex-shrink: 0; }
-    .track-info { min-width: 0; flex: 1; }
-    .track-name { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .track-artist { font-size: 11px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .tl-empty { padding: 22px 14px; text-align: center; font-size: 12px; color: var(--muted); line-height: 1.5; white-space: pre-line; }
+/* ═══════════════════ 2. 베이스 ═══════════════════ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { background: var(--bg); }
+body {
+  width: 380px;
+  background: var(--bg);
+  color: var(--t1);
+  font-family: "Pretendard Local","Pretendard Variable",Pretendard,"Apple SD Gothic Neo","Noto Sans JP","Malgun Gothic",sans-serif;
+  font-size: 13px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+  transition: background-color var(--t-theme) var(--ease-io), color var(--t-theme) var(--ease-io);
+  position: relative;
+}
+::selection { background: rgb(var(--wash) / .45); color: var(--t1); }
+button { font-family: inherit; }
+button, input { -webkit-tap-highlight-color: transparent; }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 4px; }
+.num { font-variant-numeric: tabular-nums; letter-spacing: 0; }
 
-    .cta { width: 100%; padding: 14px; font-size: 14px; margin-top: 14px; }
-    .footer { display: flex; justify-content: center; gap: 6px; margin-top: 12px; font-size: 11px; color: var(--muted); min-height: 14px; }
-    .footer b { color: var(--text); font-weight: 600; }
+/* ── 필름 그레인: 정적 SVG 노이즈 텍스처 (셰이더 아님 · 애니메이션 없음) ── */
+body::after {
+  content: ""; position: fixed; inset: 0; z-index: 90; pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.92' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='.52'/></svg>");
+  background-size: 160px 160px;
+  opacity: var(--grain-op); mix-blend-mode: var(--grain-blend);
+}
 
-    .tracklist::-webkit-scrollbar { width: 8px; }
-    .tracklist::-webkit-scrollbar-thumb { background: #4d4d4d; border-radius: 4px; }
-  </style>
+/* ── 아트 워시: 콘텐츠에서 추출한 색 → 배경 장식에만. 두 겹을 크로스페이드 ── */
+.wash { position: absolute; inset: 0 0 auto 0; height: 210px; pointer-events: none; transition: opacity .55s var(--ease-io); }
+.wash-sp { /* 위: 아트 색 → 아래: 딥블랙으로 수렴 (레퍼런스 Spotify 컬러 헤더) */
+  background:
+    linear-gradient(180deg, rgba(13,13,13,0) 0%, rgba(13,13,13,.55) 58%, #0d0d0d 94%),
+    linear-gradient(180deg, rgb(var(--wash) / .5) 0%, rgb(var(--wash) / .2) 52%, rgb(var(--wash) / 0) 90%);
+  opacity: 1;
+}
+.wash-ap {
+  background:
+    linear-gradient(180deg, rgba(250,45,72,.22) 0%, rgba(250,45,72,.06) 52%, transparent 88%),
+    radial-gradient(240px 150px at 12% -8%, rgba(255,120,150,.32), transparent 70%),
+    radial-gradient(260px 160px at 96% -4%, rgba(185,70,225,.15), transparent 72%);
+  opacity: 0;
+}
+html[data-service="apple"] .wash-sp { opacity: 0; }
+html[data-service="apple"] .wash-ap { opacity: 1; }
+
+.app { position: relative; padding: 16px 18px 18px; }
+
+/* ── 서비스별 문구 스왑 ── */
+html[data-service="spotify"] .ap-only { display: none !important; }
+html[data-service="apple"]  .sp-only { display: none !important; }
+
+/* ── 상태 게이팅: 현재 상태와 일치하지 않는 data-show만 숨김(디스플레이 유형 보존) ── */
+html[data-state="ready"]        [data-show]:not([data-show~="ready"]),
+html[data-state="running"]      [data-show]:not([data-show~="running"]),
+html[data-state="review"]       [data-show]:not([data-show~="review"]),
+html[data-state="disconnected"] [data-show]:not([data-show~="disconnected"]),
+html[data-state="empty"]        [data-show]:not([data-show~="empty"]),
+html[data-state="error"]        [data-show]:not([data-show~="error"]) { display: none !important; }
+
+/* ═══════════════════ 3. 브랜드 헤더 ═══════════════════ */
+.hd { display: flex; align-items: center; gap: 9px; position: relative; }
+.hd .mark { flex-shrink: 0; display: block; }
+.mark circle, .mark path { transition: stroke var(--t-theme), fill var(--t-theme); }
+.hd-name { flex: 1; min-width: 0; }
+.hd-name b { display: block; font-size: 13px; font-weight: 830; letter-spacing: .02em; line-height: 1.1; }
+.hd-name span {
+  display: block; font-size: 8.5px; font-weight: 720; letter-spacing: .16em;
+  color: var(--t3); margin-top: 2px; transition: color var(--t-theme);
+}
+
+/* ── 시그니처 · 서비스 세그먼트 토글 (노브 슬라이드) ── */
+.seg {
+  position: relative; display: flex; width: 148px; flex-shrink: 0;
+  background: var(--seg-bg); border-radius: 999px; padding: 2.5px;
+  transition: background-color var(--t-theme);
+}
+.seg-knob {
+  position: absolute; top: 2.5px; bottom: 2.5px; width: calc(50% - 3.5px); left: 2.5px;
+  border-radius: 999px; background: var(--knob); box-shadow: var(--sh-knob);
+  transition: transform .28s cubic-bezier(.32,.9,.35,1), background-color var(--t-theme), box-shadow var(--t-theme);
+}
+html[data-service="apple"] .seg-knob { transform: translateX(calc(100% + 2px)); }
+.seg button {
+  position: relative; z-index: 1; flex: 1;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  border: none; background: transparent; cursor: pointer;
+  font-size: 10px; font-weight: 720; letter-spacing: .01em;
+  padding: 5px 2px; border-radius: 999px; white-space: nowrap;
+  color: var(--t3); transition: color .3s;
+}
+.seg button[aria-pressed="true"] { color: var(--t1); }
+.seg .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.seg .dot-sp { background: #1ed760; }
+.seg .dot-ap { background: #fa2d48; }
+
+/* ═══════════════════ 4. 패널 (공용 표면) ═══════════════════ */
+.panel {
+  background: var(--card); border: 1px solid var(--card-line); border-radius: var(--rad-l);
+  box-shadow: var(--panel-sh);
+  -webkit-backdrop-filter: blur(var(--panel-blur)) saturate(1.7);
+  backdrop-filter: blur(var(--panel-blur)) saturate(1.7);
+  transition: background-color var(--t-theme), border-color var(--t-theme), box-shadow var(--t-theme), border-radius var(--t-theme);
+}
+
+/* ── 섹션 라벨 ── */
+.lbl {
+  display: flex; align-items: baseline; gap: 8px; margin: 15px 2px 7px;
+  font-size: 10px; font-weight: 740; letter-spacing: .15em; text-transform: uppercase;
+  color: var(--t3); transition: color var(--t-theme);
+}
+.lbl .fill { flex: 1; }
+.lbl .meta { font-size: 10.5px; font-weight: 560; letter-spacing: 0; text-transform: none; }
+
+/* ═══════════════════ 5. 영상 카드 ═══════════════════ */
+.video { padding: 12px; }
+.video-row { display: flex; gap: 12px; }
+.thumb {
+  width: 100px; height: 56px; border-radius: var(--rad-s); flex-shrink: 0;
+  position: relative; overflow: hidden;
+  /* 실제 썸네일 <img>가 대체 — 아래는 콘텐츠 색 기반 플레이스홀더 */
+  background: radial-gradient(130% 100% at 76% 8%, #52458f 0%, #2c2853 42%, #171d38 74%, #0d1122 100%);
+  box-shadow: var(--sh-thumb);
+  transition: box-shadow var(--t-theme);
+}
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb .dur {
+  position: absolute; right: 5px; bottom: 5px;
+  background: rgba(0,0,0,.76); color: #fff;
+  font-size: 9px; font-weight: 700; padding: 1.5px 5px; border-radius: 4px;
+}
+.video-meta { min-width: 0; align-self: center; }
+.video-title {
+  font-size: 12.5px; font-weight: 700; line-height: 1.42; letter-spacing: -.01em;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.video-sub { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 10.5px; color: var(--t2); transition: color var(--t-theme); }
+.chip {
+  font-size: 9px; font-weight: 760; letter-spacing: .04em; color: var(--acc);
+  background: var(--acc-dim); border-radius: 999px; padding: 2px 7px;
+  transition: color var(--t-theme), background-color var(--t-theme);
+}
+html[data-state="empty"] .chip { display: none; } /* 트랙리스트가 없으면 감지 칩도 없음 */
+
+/* ── 연결 상태 행 (영상 카드 하단에 헤어라인으로 결합) ── */
+.connect {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--line);
+  transition: border-color var(--t-theme);
+}
+.connect .st-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--acc); flex-shrink: 0; transition: background-color var(--t-theme); }
+.connect .st-dot.off { background: var(--t3); }
+.connect-txt { flex: 1; min-width: 0; font-size: 11px; color: var(--t2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color var(--t-theme); }
+.connect-txt b { color: var(--t1); font-weight: 720; transition: color var(--t-theme); }
+
+/* ═══════════════════ 6. 버튼 ═══════════════════ */
+.btn {
+  border: none; cursor: pointer; border-radius: 999px; font-weight: 760;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  white-space: nowrap; flex-shrink: 0;
+  transition: background-color var(--t-fast), color var(--t-fast), border-color var(--t-fast),
+              filter var(--t-fast), transform .12s var(--ease-out), box-shadow var(--t-theme);
+}
+.btn:active { transform: scale(.97); }
+.btn-acc { background: var(--acc); color: var(--on-acc); }
+.btn-acc:hover { filter: brightness(1.07); }
+.btn-ghost { background: transparent; border: 1px solid var(--btn-line); color: var(--t1); }
+.btn-ghost:hover { border-color: var(--t1); }
+.btn-quiet { background: transparent; color: var(--t3); }
+.btn-quiet:hover { color: var(--t1); }
+.btn-xs { padding: 4.5px 11px; font-size: 10.5px; }
+.btn-sm { padding: 7px 15px; font-size: 11.5px; }
+
+/* ── 주요 CTA ── */
+.cta {
+  width: 100%; margin-top: 14px; padding: 13px; border-radius: 999px; border: none;
+  background: var(--acc); color: var(--on-acc);
+  font-size: 13.5px; font-weight: 820; letter-spacing: -.01em; cursor: pointer;
+  box-shadow: var(--sh-cta);
+  transition: background-color var(--t-theme), color var(--t-theme), box-shadow var(--t-theme),
+              filter var(--t-fast), transform .14s var(--ease-out);
+}
+.cta:hover { filter: brightness(1.07); transform: translateY(-1px); }
+.cta:active { transform: scale(.98); }
+.cta:disabled { background: var(--raise); color: var(--t3); box-shadow: none; cursor: default; transform: none; filter: none; }
+.foot-note { text-align: center; font-size: 10.5px; color: var(--t3); margin-top: 10px; transition: color var(--t-theme); }
+
+/* ═══════════════════ 7. 트랙리스트 미리보기 ═══════════════════ */
+.tracklist { overflow: hidden; }
+.tracklist-scroll { max-height: 176px; overflow-y: auto; overscroll-behavior: contain; }
+.tracklist-scroll::-webkit-scrollbar { width: 9px; }
+.tracklist-scroll::-webkit-scrollbar-thumb { background: var(--raise); border-radius: 5px; border: 2.5px solid transparent; background-clip: content-box; }
+.tracklist-scroll::-webkit-scrollbar-thumb:hover { background-color: var(--t3); }
+.tr {
+  display: flex; align-items: center; gap: 10px; padding: 8.5px 12px;
+  transition: background-color var(--t-fast);
+}
+.tr:hover { background: var(--hover); }
+.tr-idx { font-size: 10.5px; color: var(--t3); width: 16px; text-align: right; flex-shrink: 0; transition: color var(--t-theme); }
+.tr-main { flex: 1; min-width: 0; }
+.tr-name { font-size: 12.5px; font-weight: 620; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -.005em; }
+.tr-artist { font-size: 10.5px; color: var(--t2); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color var(--t-theme); }
+.tr-time { font-size: 10.5px; color: var(--t3); flex-shrink: 0; transition: color var(--t-theme); }
+/* 상태 점: 변환 중/검토 상태에서만 노출 */
+.tr-st { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; display: none; }
+html[data-state="running"] .tr-st, html[data-state="review"] .tr-st { display: block; }
+.tr-st.ok { background: var(--acc); }
+.tr-st.rev { background: var(--warn); }
+.tr-st.miss { background: var(--miss); }
+.tr-st.wait { background: var(--raise); }
+
+/* ═══════════════════ 8. 진행/검토 배너 ═══════════════════ */
+.banner { padding: 11px 13px 12px; margin-top: 14px; }
+.banner-row { display: flex; align-items: center; gap: 9px; }
+.spin {
+  width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0;
+  border: 2px solid var(--raise); border-top-color: var(--acc);
+  animation: spin 1s linear infinite;
+  transition: border-color var(--t-theme);
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.banner-txt { flex: 1; min-width: 0; font-size: 11.5px; font-weight: 640; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.banner-txt .num { font-weight: 800; }
+.banner-sub { font-size: 10px; color: var(--t3); margin-top: 1px; transition: color var(--t-theme); }
+.rail { height: 3px; border-radius: 2px; background: var(--raise); overflow: hidden; margin-top: 10px; transition: background-color var(--t-theme); }
+.rail-fill { height: 100%; width: 56.25%; border-radius: 2px; background: var(--acc); transition: width .45s var(--ease-out), background-color var(--t-theme); }
+.banner-warn .st-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); flex-shrink: 0; }
+.banner-warn .banner-txt b { color: var(--warn); }
+
+/* ═══════════════════ 9. 간단 검토 (팝업 축약판) ═══════════════════ */
+/* 시그니처 — 매칭 레일: YouTube 원본(붉은 틱+타임코드)에서 후보 목록으로
+   흐르는 헤어라인. '원본 → 후보'를 라벨이 아니라 구조로 말한다. */
+.review-mini { margin-top: 10px; padding: 13px 13px 6px; }
+.origin { display: flex; gap: 10px; }
+.tick { width: 3px; height: 30px; border-radius: 2px; background: var(--yt); flex-shrink: 0; margin-top: 2px; transition: background-color var(--t-theme); }
+.origin-main { flex: 1; min-width: 0; }
+.origin-tc { font-size: 10px; font-weight: 720; color: var(--t3); letter-spacing: .04em; transition: color var(--t-theme); }
+.origin-name { font-size: 12.5px; font-weight: 720; letter-spacing: -.012em; margin-top: 2px; line-height: 1.35; }
+.origin-micro {
+  display: flex; align-items: center; gap: 5px; margin-top: 3px;
+  font-size: 8.5px; font-weight: 740; letter-spacing: .13em; color: var(--t3);
+  transition: color var(--t-theme);
+}
+.origin-micro svg { flex-shrink: 0; }
+.cands-mini { margin: 8px 0 0 4.5px; padding-left: 12px; border-left: 1px solid var(--line); transition: border-color var(--t-theme); }
+.cand-mini {
+  display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 6px;
+  border-radius: var(--rad); cursor: pointer;
+  transition: background-color var(--t-fast);
+}
+.cand-mini:hover { background: var(--hover); }
+.art {
+  border-radius: 5px; flex-shrink: 0; position: relative; overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.05);
+  transition: border-radius var(--t-theme);
+}
+html[data-service="apple"] .art { border-radius: 7px; }
+.art-36 { width: 36px; height: 36px; }
+.cand-mini .meta { flex: 1; min-width: 0; }
+.cand-mini .name { font-size: 12px; font-weight: 620; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cand-mini .sub { font-size: 10px; color: var(--t2); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color var(--t-theme); }
+.cand-mini .dur { font-size: 10px; color: var(--t3); flex-shrink: 0; transition: color var(--t-theme); }
+.add-btn {
+  border: 1px solid var(--btn-line); background: transparent; color: var(--t1);
+  border-radius: 999px; padding: 4px 11px; font-size: 10px; font-weight: 780; cursor: pointer; flex-shrink: 0;
+  transition: background-color var(--t-fast), color var(--t-fast), border-color var(--t-fast), transform .12s var(--ease-out);
+}
+.add-btn:hover { background: var(--acc); color: var(--on-acc); border-color: var(--acc); }
+.add-btn:active { transform: scale(.93); }
+.review-mini-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 2px 6px 4px; margin-top: 2px;
+}
+.link-quiet {
+  background: none; border: none; cursor: pointer; padding: 3px 2px;
+  font-size: 10.5px; font-weight: 700; color: var(--t3);
+  display: inline-flex; align-items: center; gap: 5px;
+  transition: color var(--t-fast), transform .18s var(--ease-out);
+}
+.link-quiet:hover { color: var(--t1); transform: translateX(2px); }
+
+/* ═══════════════════ 10. 빈/에러/미연결 상태 ═══════════════════ */
+.state-block { padding: 24px 18px; text-align: center; }
+.state-ico {
+  width: 38px; height: 38px; border-radius: 50%; margin: 0 auto;
+  background: var(--raise); display: grid; place-items: center;
+  transition: background-color var(--t-theme);
+}
+.state-title { font-size: 12.5px; font-weight: 740; margin-top: 11px; letter-spacing: -.01em; }
+.state-body { font-size: 11px; color: var(--t3); line-height: 1.6; margin-top: 5px; transition: color var(--t-theme); }
+.state-act { margin-top: 13px; }
+.error-panel { border-color: rgb(228 88 106 / .38); background: rgb(228 88 106 / .07); }
+html[data-service="apple"] .error-panel { border-color: rgb(192 36 74 / .3); background: rgb(192 36 74 / .06); }
+
+/* ═══════════════════ 11. 등장 모션 (절제 · 상태 전달) ═══════════════════ */
+@keyframes rise { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
+.rise   { animation: rise .4s var(--ease-out) both; }
+.rise-1 { animation-delay: .04s; } .rise-2 { animation-delay: .09s; }
+.rise-3 { animation-delay: .14s; } .rise-4 { animation-delay: .19s; }
+
+/* ── 프리뷰 전용 상태 스위처 (프로덕션 빌드에서 제거) ── */
+.dev {
+  position: fixed; right: 8px; bottom: 8px; z-index: 99;
+  display: flex; gap: 3px; padding: 3px;
+  background: rgba(0,0,0,.55); border-radius: 999px;
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.dev button { border: none; background: transparent; color: rgba(255,255,255,.55); font-size: 8.5px; font-weight: 700; padding: 3px 7px; border-radius: 999px; cursor: pointer; }
+.dev button[aria-pressed="true"] { background: rgba(255,255,255,.2); color: #fff; }
+
+/* ═══════════════════ 12. 접근성 — 모션 최소화 ═══════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+  .spin { border-top-color: var(--acc); } /* 정지 상태로도 의미 유지 */
+}
+.svc-badge { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+  font-size: 10.5px; font-weight: 720; color: var(--t2);
+  background: var(--seg-bg); border-radius: 999px; padding: 5px 11px; }
+.tr-st:empty { display: inline-block; }
+</style>
 </head>
 <body>
-  <div class="app">
-    <div class="header">
-      <div class="badge">&#8594;</div>
-      <div>
-        <h1>YouTube &rarr; Spotify</h1>
-        <p>노래 모음 영상 → 재생목록</p>
+
+<div class="wash wash-sp" aria-hidden="true"></div>
+<div class="wash wash-ap" aria-hidden="true"></div>
+
+<div class="app">
+
+  <!-- ═══════ 브랜드 헤더 ═══════ -->
+  <header class="hd rise">
+    <svg class="mark" width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <circle cx="16" cy="16" r="14.5" stroke="var(--acc)" stroke-width="1.8"/>
+      <circle cx="11" cy="16" r="2.2" fill="var(--acc)"/>
+      <circle cx="21" cy="16" r="2.2" fill="var(--acc)"/>
+      <path d="M13.2 16h5.6" stroke="var(--acc)" stroke-width="1.4"/>
+    </svg>
+    <div class="hd-name">
+      <b>MIXTAPE</b>
+      <span class="sp-only">YT TO SPOTIFY</span>
+      <span class="ap-only">YT TO APPLE MUSIC</span>
+    </div>
+    <div class="svc-badge" aria-label="변환 대상"><span class="dot dot-sp"></span>Spotify</div>
+  </header>
+
+  <!-- ═══════ 변환 진행 배너 (running) ═══════ -->
+  <section class="panel banner rise-1 rise" data-show="running" aria-live="polite">
+    <div class="banner-row">
+      <div class="spin" aria-hidden="true"></div>
+      <div style="flex:1;min-width:0">
+        <div class="banner-txt"><span class="num">9</span><span style="color:var(--t3)">/16</span> 매칭 중 — <span style="color:var(--t2)">RADWIMPS · Sparkle</span></div>
+        <div class="banner-sub">팝업을 닫아도 백그라운드에서 계속돼요</div>
+      </div>
+      <button type="button" class="btn btn-acc btn-xs" id="banner-btn">상태 보기</button>
+    </div>
+    <div class="rail"><div class="rail-fill" id="banner-fill"></div></div>
+  </section>
+
+  <!-- ═══════ 확인 대기 배너 (review) ═══════ -->
+  <section class="panel banner banner-warn rise-1 rise" data-show="review" aria-live="polite">
+    <div class="banner-row">
+      <span class="st-dot" aria-hidden="true"></span>
+      <div class="banner-txt" style="flex:1"><b class="num">5곡</b>이 확인을 기다려요</div>
+      <button type="button" class="btn btn-acc btn-xs">전체 검토</button>
+    </div>
+  </section>
+
+  <!-- ═══════ 연결 만료 배너 (error) ═══════ -->
+  <section class="panel banner error-panel rise-1 rise" data-show="error" role="alert">
+    <div class="banner-row">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style="flex-shrink:0">
+        <circle cx="7" cy="7" r="6" stroke="var(--miss)" stroke-width="1.5"/>
+        <path d="M7 4v3.4M7 9.6v.5" stroke="var(--miss)" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <div style="flex:1;min-width:0">
+        <div class="banner-txt"><span class="sp-only">Spotify</span><span class="ap-only">Apple Music</span> 연결이 만료됐어요</div>
+        <div class="banner-sub">다시 연결하면 이어서 변환할 수 있어요</div>
+      </div>
+      <button type="button" class="btn btn-acc btn-xs">다시 연결</button>
+    </div>
+  </section>
+
+  <!-- ═══════ 감지된 영상 카드 ═══════ -->
+  <div class="lbl rise-1 rise"><span>감지된 영상</span></div>
+  <section class="panel video rise-1 rise">
+    <div class="video-row">
+      <div class="thumb">
+        <img id="thumb-img" alt="" hidden />
+        <span class="dur num">1:12:48</span>
+      </div>
+      <div class="video-meta">
+        <div class="video-title" id="video-title">별이 쏟아진 날 · 새벽에 듣기좋은 잔잔한 우타이테/일본노래 모음</div>
+        <div class="video-sub"><span id="video-channel">노른자</span><span class="chip num">16곡 감지</span></div>
       </div>
     </div>
 
-    <!-- 진행 중/결과 대기 배너 -->
-    <div class="banner hidden" id="banner">
-      <span id="banner-text">변환 진행 중…</span>
-      <button class="btn btn-green btn-xs" id="banner-btn">상태 보기</button>
+    <!-- 연결됨 (ready·running·review·empty) -->
+    <div class="connect" data-show="ready running review empty">
+      <span class="st-dot" aria-hidden="true"></span>
+      <span class="connect-txt"><b><span class="sp-only">Spotify</span><span class="ap-only">Apple Music</span></b> 연결됨 · ACAね</span>
+      <button type="button" class="btn btn-ghost btn-xs" id="disconnect-btn">해제</button>
     </div>
-
-    <div class="label">감지된 영상</div>
-    <div class="card">
-      <div class="video">
-        <div class="thumb">
-          <svg id="thumb-ph" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M8 5v14l11-7L8 5z" fill="#b3b3b3"/></svg>
-          <img id="thumb-img" alt="" hidden />
-        </div>
-        <div class="video-meta">
-          <div class="video-title" id="video-title">영상을 확인하는 중…</div>
-          <div class="video-channel" id="video-channel"></div>
-        </div>
-      </div>
+    <!-- 미연결 (disconnected·error) -->
+    <div class="connect" data-show="disconnected error">
+      <span class="st-dot off" aria-hidden="true"></span>
+      <span class="connect-txt" style="color:var(--t3)">연결 안 됨 — 변환하려면 계정이 필요해요</span>
+      <button type="button" class="btn btn-acc btn-sm" id="connect-btn"><span class="sp-only">Spotify 연결</span><span class="ap-only">Apple Music 연결</span></button>
     </div>
+  </section>
 
-    <div class="connect">
-      <div class="connect-left">
-        <span>Spotify 계정</span>
-        <span class="connect-status" id="spotify-status">연결 안 됨</span>
-      </div>
-      <button class="btn btn-green btn-sm" id="connect-btn">연결</button>
-    </div>
 
-    <div class="label">트랙리스트</div>
-    <div class="tracklist" id="track-list">
-      <div class="tl-empty">트랙리스트를 읽는 중…</div>
-    </div>
-
-    <button class="btn btn-green cta" id="convert-btn">재생목록으로 변환</button>
-    <div class="footer" id="stats"></div>
+  <!-- ═══════ 트랙리스트 미리보기 ═══════ -->
+  <div class="lbl rise-2 rise" data-show="ready running review">
+    <span>트랙리스트 · <span class="num">16곡</span></span><span class="fill"></span><span class="meta num">1:12:48</span>
   </div>
+  <section class="panel tracklist rise-2 rise" data-show="ready running review">
+    <div class="tracklist-scroll" id="track-list" tabindex="0" aria-label="감지된 트랙 16곡">
+      </div>
+  </section>
 
-  <script src="popup.js"></script>
+  <!-- ═══════ 빈 상태 (트랙리스트 없음) ═══════ -->
+  <div class="lbl rise-2 rise" data-show="empty"><span>트랙리스트</span></div>
+  <section class="panel rise-2 rise" data-show="empty">
+    <div class="state-block">
+      <div class="state-ico" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M3 4.5h10M3 8h6.5M3 11.5h4" stroke="var(--t3)" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M11.2 9.8l3 3M14.2 9.8l-3 3" stroke="var(--t3)" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="state-title">이 영상에서 트랙리스트를 찾지 못했어요</div>
+      <div class="state-body">설명란·고정 댓글에 타임스탬프가 있는<br/>"노래 모음" 영상에서 동작해요</div>
+      <div class="state-act"><button type="button" class="btn btn-ghost btn-sm">다시 스캔</button></div>
+    </div>
+  </section>
+
+  <!-- ═══════ 주요 CTA ═══════ -->
+  <button type="button" class="cta rise-3 rise" id="convert-btn" data-show="ready">재생목록으로 변환</button>
+  <button type="button" class="cta rise-3 rise" data-show="review">검토 계속 — <span class="num">5곡</span> 남음</button>
+  <button type="button" class="cta rise-3 rise" data-show="running" disabled>변환 중…</button>
+  <button type="button" class="cta rise-3 rise" data-show="disconnected empty error" disabled>재생목록으로 변환</button>
+
+  <div class="foot-note rise-4 rise" data-show="ready">변환은 백그라운드에서 계속돼요</div>
+  <div class="foot-note rise-4 rise" data-show="review">추가한 곡은 바로 재생목록에 실려요</div>
+  <div class="foot-note rise-4 rise" data-show="disconnected">먼저 <span class="sp-only">Spotify</span><span class="ap-only">Apple Music</span> 계정을 연결해 주세요</div>
+  <div class="foot-note rise-4 rise" data-show="running">완료되면 알려드릴게요 · <span class="num">9/16</span></div>
+  <div class="foot-note rise-4 rise" data-show="empty error">&nbsp;</div>
+
+</div>
+
+<!-- 프리뷰 전용 상태 스위처 — 프로덕션 빌드에서 제거 -->
+<script src="popup.js"></script>
 </body>
 </html>
