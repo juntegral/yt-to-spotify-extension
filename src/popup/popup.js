@@ -185,7 +185,9 @@ async function openConvertTab() {
   const url = chrome.runtime.getURL("src/pages/convert.html");
   const { convertTabId } = await chrome.storage.local.get("convertTabId");
   if (convertTabId != null) {
-    try { await chrome.tabs.update(convertTabId, { active: true }); return; } catch (e) { /* 닫힘 */ }
+    // 재사용 탭은 반드시 리로드: convert.js는 done 이후 폴링을 멈추므로,
+    // 리로드 없이 활성화만 하면 이전 변환 화면에 멈춰 새 변환의 "확인 필요"가 안 보임.
+    try { await chrome.tabs.reload(convertTabId); await chrome.tabs.update(convertTabId, { active: true }); return; } catch (e) { /* 닫힘 */ }
   }
   const tab = await chrome.tabs.create({ url });
   await chrome.storage.local.set({ convertTabId: tab.id });
