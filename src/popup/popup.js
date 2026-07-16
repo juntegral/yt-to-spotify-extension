@@ -52,7 +52,9 @@ function computeState() {
   const cs = convState;
   const pending = cs ? ((cs.review || []).length + (cs.notFound || []).length) : 0;
   if (cs && cs.status === "running") return "running";
-  if (cs && cs.status === "done" && pending > 0) return "review";
+  // 지연 생성: 검토가 남았거나, 재생목록을 아직 안 만들었으면 검토 흐름으로
+  // (여기서 '변환'을 다시 노출하면 진행 중인 선택이 덮어써짐)
+  if (cs && cs.status === "done" && (pending > 0 || !cs.playlistId)) return "review";
   if (cs && cs.status === "error") return "error";
   if (!connected) return "disconnected";
   if (video && video.tracks && video.tracks.length) return "ready";
@@ -64,7 +66,9 @@ function applyState() {
   // CTA / 라벨 텍스트
   const total = (video && video.tracks && video.tracks.length) || (convState && convState.total) || 0;
   const pending = convState ? ((convState.review || []).length + (convState.notFound || []).length) : 0;
-  q('.cta[data-show="review"]', (b) => (b.innerHTML = `검토 계속 — <span class="num">${pending}곡</span> 남음`));
+  q('.cta[data-show="review"]', (b) => (b.innerHTML = pending > 0
+    ? `검토 계속 — <span class="num">${pending}곡</span> 남음`
+    : `재생목록 만들기 마무리`));
   q('.lbl[data-show~="ready"] span', (e) => (e.innerHTML = `트랙리스트 · <span class="num">${total}곡</span>`));
   q('.foot-note[data-show="running"]', (e) => (e.innerHTML = convState ? `완료되면 알려드릴게요 · <span class="num">${convState.processed || 0}/${convState.total || total}</span>` : ""));
 }
@@ -162,7 +166,9 @@ function renderBanners() {
     q("#banner-fill", (e) => (e.style.width = (cs.total ? Math.round((cs.processed / cs.total) * 100) : 0) + "%"));
   }
   const pending = cs ? ((cs.review || []).length + (cs.notFound || []).length) : 0;
-  q('[data-show="review"] .banner-txt', (e) => (e.innerHTML = `<b class="num">${pending}곡</b>이 확인을 기다려요`));
+  q('[data-show="review"] .banner-txt', (e) => (e.innerHTML = pending > 0
+    ? `<b class="num">${pending}곡</b>이 확인을 기다려요`
+    : `재생목록 만들기만 남았어요`));
   if (cs && cs.status === "error") q('[data-show="error"] .banner-txt', (e) => txt(e, "변환이 중단됐어요: " + (cs.error || "")));
 }
 

@@ -39,12 +39,14 @@ async function handleMessage(message, sender) {
       return startConvert(message.video);
     case 'GET_CONVERT_STATE':
       return { ok: true, state: (await chrome.storage.local.get('convertState')).convertState || null };
+    case 'CREATE_PLAYLIST':
+      return { ok: true, state: await createPlaylist() };
     case 'RESOLVE_REVIEW':
       return { ok: true, state: await resolveReview(message.itemId, message.uri) };
     case 'UNDO_RESOLVE':
       return { ok: true, state: await undoResolve() };
     case 'MANUAL_SEARCH':
-      return { ok: true, results: await manualSearch(message.query) };
+      return { ok: true, results: await manualSearch(message.query, message.itemId) };
     case 'CLEAR_CONVERT':
       await chrome.storage.local.remove(['convertState', 'convertTabId']);
       await setBadge('');
@@ -501,6 +503,7 @@ async function runConvert(video) {
       slot: i, // 원래 트랙리스트 순서(검토 곡을 원위치에 삽입하기 위함)
       label: entry.label || `${entry.artistGuess || ''} - ${entry.titleGuess || ''}`,
       time: entry.time || null,
+      durationSec: entry.durationSec != null ? entry.durationSec : null, // 수동검색 길이 대조용
     };
     const pre = preAssigned.get(i);
     if (pre) {
@@ -524,23 +527,35 @@ async function runConvert(video) {
     await setBadge(Math.round(((i + 1) / video.tracks.length) * 100) + '%');
   }
 
-  // 2) 재생목록 생성 (이름 = 영상 제목, 중복 시 " (2)")
-  // 2026-02 Spotify API 이관: POST /users/{id}/playlists → 403, POST /me/playlists 사용
-  const name = await uniquePlaylistName(video.title);
-  const desc = video.url ? `YouTube에서 변환: ${video.url}` : 'YouTube 노래 모음에서 변환';
+  // 2) 재생목록은 여기서 만들지 않는다 — 지연 생성.
+  //    중간에 끊기면 스포티파이에 반쪽짜리 재생목록(쓰레기값)이 남던 문제 방지.
+  //    매칭 결과는 상태(added/review/notFound)에만 축적하고, 사용자가 검토를 마친 뒤
+  //    '재생목록 만들기'를 누르면 createPlaylist()가 그 시점의 added 전체를
+  //    원래 트랙리스트 순서로 한 번에 실어 생성한다.
+  await patchState({ status: 'done' });
+  await setBadge('✓');
+}
+
+// '재생목록 만들기' — 검토까지 끝난(또는 사용자가 원하는 시점의) added 전체를
+// 원래 순서 그대로 일괄 생성. 멱등: 이미 만들어졌으면 그대로 반환.
+async function createPlaylist() {
+  const { convertState: st } = await chrome.storage.local.get('convertState');
+  if (!st || st.status !== 'done') throw new Error('완료된 변환이 없습니다');
+  if (st.playlistId) return st; // 이미 생성됨
+  const uris = (st.added || []).map((a) => a.resolvedUri || (a.track && a.track.uri)).filter(Boolean);
+  if (!uris.length) throw new Error('실을 곡이 없어요 — 먼저 곡을 추가해주세요');
+
+  // 이름 = 영상 제목(중복 시 " (2)"). 2026-02 이관: POST /me/playlists, /items
+  const name = await uniquePlaylistName(st.videoTitle);
+  const desc = st.videoUrl ? `YouTube에서 변환: ${st.videoUrl}` : 'YouTube 노래 모음에서 변환';
   const pl = await apiPost('/me/playlists', { name, description: desc.slice(0, 300), public: false });
-
-  // 3) 자동 매칭 곡 추가 (100개 배치) — 2026-02 이관: /tracks → /items
-  const uris = auto.map((a) => a.track.uri);
   for (let i = 0; i < uris.length; i += 100) {
-    await apiPost(`/playlists/${pl.id}/items`, { uris: uris.slice(i, i + 100) });
+    await apiPost(`/playlists/${pl.id}/items`, { uris: uris.slice(i, i + 100) }); // st.added 순서 = 슬롯 순서
   }
-
-  await patchState({
-    status: 'done', playlistId: pl.id, playlistName: name,
+  return patchState({
+    playlistId: pl.id, playlistName: name,
     playlistUrl: (pl.external_urls && pl.external_urls.spotify) || null,
   });
-  await setBadge('✓');
 }
 
 async function uniquePlaylistName(base) {
@@ -565,7 +580,7 @@ function slotOf(item) {
 
 async function resolveReview(itemId, uri) {
   const { convertState: st } = await chrome.storage.local.get('convertState');
-  if (!st || !st.playlistId) throw new Error('진행 중인 변환 결과가 없습니다');
+  if (!st || st.status !== 'done') throw new Error('진행 중인 변환 결과가 없습니다');
 
   const inReview = (st.review || []).some((x) => x.id === itemId);
   const from = inReview ? 'review' : 'notFound';
@@ -579,7 +594,11 @@ async function resolveReview(itemId, uri) {
     st.added = st.added || [];
     const slot = slotOf(item);
     insertPos = st.added.filter((x) => slotOf(x) < slot).length;
-    await apiPost(`/playlists/${st.playlistId}/items`, { uris: [uri], position: insertPos }); // 2026-02 이관 (position: 0-based)
+    // 지연 생성: 재생목록이 아직 없으면 로컬 상태에만 축적(생성 시 일괄 반영).
+    // 이미 생성된 경우(구버전 변환·생성 후 추가 검토)에만 즉시 API 삽입.
+    if (st.playlistId) {
+      await apiPost(`/playlists/${st.playlistId}/items`, { uris: [uri], position: insertPos }); // 2026-02 이관 (position: 0-based)
+    }
     st.added.splice(insertPos, 0, { ...item, resolvedUri: uri }); // 재생목록 순서를 st.added에도 미러링
   } else {
     (st.skipped = st.skipped || []).push(item);
@@ -602,7 +621,9 @@ async function undoResolve() {
   if (lr.uri) {
     const idx = (st.added || []).findIndex((x) => x.id === lr.itemId && x.resolvedUri === lr.uri);
     if (idx >= 0) { item = st.added[idx]; st.added.splice(idx, 1); }
-    try { await apiDelete(`/playlists/${st.playlistId}/tracks`, { tracks: [{ uri: lr.uri }] }); } catch (e) { /* best-effort */ }
+    if (st.playlistId) { // 지연 생성 전에는 로컬 되돌리기만으로 충분
+      try { await apiDelete(`/playlists/${st.playlistId}/tracks`, { tracks: [{ uri: lr.uri }] }); } catch (e) { /* best-effort */ }
+    }
   } else {
     const idx = (st.skipped || []).findIndex((x) => x.id === lr.itemId);
     if (idx >= 0) { item = st.skipped[idx]; st.skipped.splice(idx, 1); }
@@ -616,9 +637,49 @@ async function undoResolve() {
   return st;
 }
 
-async function manualSearch(query) {
+// 수동검색 — 이름·가수·길이 3신호 스코어링.
+//  1) 원문 그대로 검색 (Spotify 검색엔진의 별칭·표기 매칭 활용)
+//  2) "아티스트 - 곡" 패턴이면 필드 지정 검색(track:"" artist:"") 양방향 병행
+//  3) itemId가 오면 그 트랙의 기대 길이(타임스탬프 간격)를 문맥으로 삼아
+//     scoreCandidate(제목·아티스트 퍼지 + 길이 지수감쇠 + 커버 페널티)로 정렬.
+//     ±4초 이내 후보엔 _durMatch 표시(UI '길이 일치' 배지).
+async function manualSearch(query, itemId) {
   if (!query || !query.trim()) return [];
-  return spSearch(query.trim(), 'track', 10); // 이미 간소화된 형태
+  const q = query.trim();
+
+  // 검토/못찾음 항목 문맥(기대 길이) 확보 — API 호출 없음
+  let durationSec = null;
+  if (itemId) {
+    const { convertState: st } = await chrome.storage.local.get('convertState');
+    const item = [...((st && st.review) || []), ...((st && st.notFound) || [])].find((x) => x.id === itemId);
+    if (item && item.durationSec != null) durationSec = item.durationSec;
+  }
+
+  const pool = new Map();
+  const add = (items) => items.forEach((t) => { if (t && t.uri && !pool.has(t.uri)) pool.set(t.uri, { ...t }); });
+
+  try { add(await spSearch(q, 'track', 10)); }
+  catch (e) { if (isRateLimit(e)) throw e; }
+
+  const parts = q.split(/\s+[-–—]\s+/);
+  const A = parts.length >= 2 ? parts[0].trim() : '';
+  const T = parts.length >= 2 ? parts.slice(1).join(' ').trim() : q;
+  if (A && T) {
+    for (const fq of [`track:"${T}" artist:"${A}"`, `track:"${A}" artist:"${T}"`]) { // 순서 모호 대비 양방향
+      try { add(await spSearch(fq, 'track', 10)); }
+      catch (e) { if (isRateLimit(e)) throw e; }
+    }
+  }
+  if (!pool.size) return [];
+
+  const entry = { label: q, artistGuess: A, titleGuess: T, durationSec };
+  const scored = [...pool.values()].map((c) => {
+    const { score } = scoreCandidate(entry, c, {});
+    c._score = Math.round(score * 10) / 10;
+    c._durMatch = !!(durationSec && c.durationMs && Math.abs(c.durationMs / 1000 - durationSec) <= 4);
+    return c;
+  });
+  return scored.sort((a, b) => (b._score || 0) - (a._score || 0)).slice(0, 10);
 }
 
 // 초기화: 이번 변환으로 만든 재생목록을 라이브러리에서 제거(팔로우 해제) + 로컬 상태 삭제.

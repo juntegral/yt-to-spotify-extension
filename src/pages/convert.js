@@ -98,6 +98,8 @@ function render(st) {
   lastState = st;
   const name = stateName(st);
   doc.setAttribute("data-state", name === "empty" ? "error" : name);
+  // 지연 생성: 재생목록 생성 전(no)엔 '만들기' CTA, 생성 후(yes)엔 '열기' 버튼 노출
+  doc.setAttribute("data-created", st && (st.playlistId || st.playlistUrl) ? "yes" : "no");
 
   if (!st) { renderEmpty(); return; }
 
@@ -144,11 +146,20 @@ function renderError(st) {
 }
 
 function renderResult(st, title, total, added, review, notFound) {
+  const created = !!(st.playlistId || st.playlistUrl);
   // 히어로 타이틀 · 카운트
   document.querySelectorAll(".hero-sp h1, .hero-ap h1").forEach((h) => txt(h, title));
-  document.querySelectorAll(".js-hero-count").forEach((e) => txt(e, `${total}곡 중 ${added.length}곡 추가`));
+  document.querySelectorAll(".js-hero-count").forEach((e) => txt(e, `${total}곡 중 ${added.length}곡 ${created ? "추가" : "선택"}`));
   const rl = document.querySelector(".review-left");
   if (rl) txt(rl, `검토 ${review.length}곡 남음`);
+
+  // 생성 전/후 카피 + 만들기 CTA 라벨
+  document.querySelectorAll('.eyebrow[data-show="result"]').forEach((e) => txt(e, created ? "변환 진행 중 · 비공개 재생목록" : "매칭 완료 · 검토 후 재생목록 생성"));
+  document.querySelectorAll('.eyebrow[data-show="complete"]').forEach((e) => txt(e, created ? "검토까지 끝 · 비공개 재생목록" : "검토 완료 · 재생목록 만들 준비 끝"));
+  document.querySelectorAll(".js-create").forEach((b) => {
+    b.innerHTML = `재생목록 만들기 · <span class="num">${added.length}곡</span>`;
+    b.classList.toggle("is-disabled", !added.length);
+  });
 
   // 콜라주 (추가된 트랙 앞 4곡 아트)
   setCollage(added);
@@ -183,10 +194,32 @@ function renderResult(st, title, total, added, review, notFound) {
   renderReviewList(review);
   renderNotFoundList(notFound);
 
-  // 완료 문구
+  // 완료 문구 — 생성 전엔 "만들 준비", 생성 후엔 "실렸어요"
   if (stateName(st) === "complete") {
     const b = document.querySelector(".alldone .b");
-    if (b) b.innerHTML = `<span class="num">${total}곡 중 ${added.length}곡</span>이 재생목록에 실렸어요 · 건너뛴 <span class="num">${(st.skipped || []).length}곡</span>은 기록에 남아있어요`;
+    if (b) b.innerHTML = created
+      ? `<span class="num">${total}곡 중 ${added.length}곡</span>이 재생목록에 실렸어요 · 건너뛴 <span class="num">${(st.skipped || []).length}곡</span>은 기록에 남아있어요`
+      : `<span class="num">${added.length}곡</span> 선택이 끝났어요 — 아래 버튼을 누르면 재생목록이 만들어져요 · 건너뜀 <span class="num">${(st.skipped || []).length}곡</span>`;
+  }
+}
+
+/* ───────── 재생목록 만들기 (지연 생성) ───────── */
+let creating = false;
+async function onCreatePlaylist() {
+  if (creating) return;
+  const btns = [...document.querySelectorAll(".js-create")];
+  if (btns.some((b) => b.classList.contains("is-disabled"))) return;
+  creating = true;
+  const prev = btns.map((b) => b.innerHTML);
+  btns.forEach((b) => { b.classList.add("is-disabled"); b.textContent = "재생목록 만드는 중…"; });
+  const r = await send({ type: "CREATE_PLAYLIST" });
+  creating = false;
+  if (r && r.ok) {
+    render(r.state);
+    showToast("재생목록을 만들었어요 — Spotify에서 열어보세요");
+  } else {
+    btns.forEach((b, i) => { b.classList.remove("is-disabled"); b.innerHTML = prev[i]; });
+    showToast("재생목록 생성 실패: " + ((r && r.error) || "?"), true);
   }
 }
 
@@ -204,9 +237,9 @@ function setCollage(added) {
 function wireOpen(url) {
   const openers = [
     $("playlist-link"),
-    document.querySelector(".added-band .btn-acc"),
+    document.querySelector(".added-band .btn-acc.open-only"),
     document.querySelector(".hero-actions .play-cir"),
-    document.querySelector(".alldone .btn-acc"),
+    document.querySelector(".alldone .btn-acc.open-only"),
   ].filter(Boolean);
   openers.forEach((btn) => {
     btn.onclick = () => { if (url) chrome.tabs ? chrome.tabs.create({ url }) : window.open(url, "_blank"); };
@@ -253,6 +286,12 @@ function candEl(c, onAdd) {
     `<button type="button" class="add-btn">추가</button>`;
   txt(cand.querySelector(".name"), v.name);
   txt(cand.querySelector(".sub"), [v.artists, v.album, v.year].filter(Boolean).join(" · "));
+  if (c._durMatch) { // 원본 타임스탬프 간격과 ±4초 이내 → 강한 신뢰 신호
+    const hit = document.createElement("span");
+    hit.className = "dur-hit";
+    hit.textContent = " · 길이 일치";
+    cand.querySelector(".sub").appendChild(hit);
+  }
   cand.querySelector(".add-btn").addEventListener("click", (e) => { e.stopPropagation(); onAdd(v.uri); });
 
   // 행 클릭 → Spotify 임베드 미리듣기 토글
@@ -332,7 +371,7 @@ function reviewCardEl(item) {
   const results = document.createElement("div");
   results.className = "nf-results";
   const manual = manualRow(
-    (q, sbtn) => doSearch(q, sbtn, results, onAdd),
+    (q, sbtn) => doSearch(q, sbtn, results, onAdd, item.id),
     true,
     () => resolve(item.id, null)
   );
@@ -357,7 +396,7 @@ function notFoundCardEl(item) {
   (item.candidates || []).forEach((c) => results.appendChild(candEl(c, onAdd)));
 
   const manual = manualRow(
-    (q, sbtn) => doSearch(q, sbtn, results, onAdd),
+    (q, sbtn) => doSearch(q, sbtn, results, onAdd, item.id),
     true,
     () => resolve(item.id, null)
   );
@@ -380,11 +419,11 @@ function renderNotFoundList(notFound) {
 }
 
 /* ───────── 직접 검색 ───────── */
-async function doSearch(query, sbtn, resultsBox, onAdd) {
+async function doSearch(query, sbtn, resultsBox, onAdd, itemId) {
   if (!query || !query.trim()) return;
   const old = sbtn.textContent;
   sbtn.disabled = true; sbtn.textContent = "…";
-  const r = await send({ type: "MANUAL_SEARCH", query });
+  const r = await send({ type: "MANUAL_SEARCH", query, itemId }); // itemId → 원 트랙 길이로 후보 정렬
   sbtn.disabled = false; sbtn.textContent = old;
   resultsBox.innerHTML = "";
   const list = (r && r.results) || [];
@@ -433,7 +472,17 @@ function hideToast() { const t = $("toast"); if (t) t.classList.remove("on"); }
 function wireReset() {
   const modal = $("reset-modal");
   if (!modal) return;
-  const open = () => modal.classList.add("on");
+  const open = () => {
+    // 지연 생성: 재생목록이 아직 없으면 경고 문구를 사실대로 완화
+    const created = !!(lastState && (lastState.playlistId || lastState.playlistUrl));
+    const p = modal.querySelector("p");
+    if (p) p.innerHTML = created
+      ? '지금까지의 진행상태(추가·검토·건너뛴 곡)를 모두 지우고, <b>이번 변환으로 만든 스포티파이 재생목록도 라이브러리에서 제거</b>합니다. 되돌릴 수 없어요.'
+      : '지금까지의 진행상태(선택·검토·건너뛴 곡)를 모두 지웁니다. 재생목록은 아직 만들어지지 않아서 <b>스포티파이에는 아무 변화가 없어요</b>.';
+    const go2 = $("reset-do");
+    if (go2) go2.textContent = created ? "초기화하고 재생목록 제거" : "초기화";
+    modal.classList.add("on");
+  };
   const close = () => modal.classList.remove("on");
   const btn = $("reset-btn"); if (btn) btn.addEventListener("click", open);
   const cancel = $("reset-cancel"); if (cancel) cancel.addEventListener("click", close);
@@ -518,6 +567,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (clear) clear.addEventListener("click", async () => { await send({ type: "CLEAR_CONVERT" }); window.close(); });
   const undo = $("toast-undo");
   if (undo) undo.addEventListener("click", undoResolve);
+  document.querySelectorAll(".js-create").forEach((b) => b.addEventListener("click", onCreatePlaylist));
   wireReset();
 
   const st = await getState();

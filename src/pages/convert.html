@@ -232,6 +232,12 @@ html[data-service="apple"] .seg-knob { transform: translateX(calc(100% + 2px)); 
 .btn-danger { background: var(--miss); color: #fff; }
 .btn-danger:hover { filter: brightness(1.06); transform: translateY(-1px); }
 
+/* 지연 생성 게이팅 — 재생목록 생성 전(no)엔 열기류 숨김, 생성 후(yes)엔 만들기류 숨김 */
+html[data-created="no"] .open-only { display: none !important; }
+html[data-created="yes"] .create-only { display: none !important; }
+/* 수동검색 후보 — 원본 타임스탬프 간격과 ±4초 이내 */
+.dur-hit { color: var(--acc); font-weight: 720; white-space: nowrap; }
+
 /* 초기화 버튼(헤더) + 경고 모달 */
 .hd-reset { margin-left: 10px; flex-shrink: 0; padding: 6px 12px; font-size: 11px; font-weight: 700;
   letter-spacing: -.01em; color: var(--t2); background: transparent; border: 1px solid var(--line);
@@ -767,12 +773,13 @@ html[data-service="apple"] .toast-pill {
         </div>
       </div>
       <div class="hero-actions">
-        <button type="button" class="play-cir" aria-label="Spotify에서 재생">
+        <button type="button" class="play-cir open-only" aria-label="Spotify에서 재생">
           <svg width="20" height="20" viewBox="0 0 14 14" aria-hidden="true"><path d="M4 1.8l8 5.2-8 5.2z" fill="var(--on-acc)"/></svg>
         </button>
-        <button type="button" class="pill-open" id="playlist-link">Spotify에서 열기
+        <button type="button" class="pill-open open-only" id="playlist-link">Spotify에서 열기
           <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M4.5 2H2v8h8V7.5M7 1.5h3.5V5M10.5 1.5L5.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
         </button>
+        <button type="button" class="btn btn-acc btn-md create-only js-create">재생목록 만들기</button>
         <div class="hd-fill"></div>
         <span class="review-left num" data-show="result">검토 5곡 남음</span>
       </div>
@@ -826,9 +833,10 @@ html[data-service="apple"] .toast-pill {
         <div class="l1"><b class="num" id="added-count">6곡</b> <span>추가됨</span></div>
         <div class="l2">별이 쏟아진 날 · MIXTAPE</div>
       </div>
-      <button type="button" class="btn btn-acc btn-md">재생목록 열기
+      <button type="button" class="btn btn-acc btn-md open-only">재생목록 열기
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M4.5 2H2v8h8V7.5M7 1.5h3.5V5M10.5 1.5L5.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
       </button>
+      <button type="button" class="btn btn-acc btn-md create-only js-create">재생목록 만들기</button>
     </section>
 
     <!-- ═══ 추가된 트랙 테이블 ═══ -->
@@ -882,9 +890,10 @@ html[data-service="apple"] .toast-pill {
       <div class="t">모든 곡을 처리했어요</div>
       <div class="b"><span class="num">16곡 중 11곡</span>이 재생목록에 실렸어요 · 건너뛴 <span class="num">5곡</span>은 기록에 남아있어요</div>
       <div class="act">
-        <button type="button" class="btn btn-acc btn-md">
+        <button type="button" class="btn btn-acc btn-md open-only">
           <span class="sp-only">Spotify에서 듣기</span><span class="ap-only">Apple Music에서 듣기</span>
         </button>
+        <button type="button" class="btn btn-acc btn-md create-only js-create">재생목록 만들기</button>
         <button type="button" class="btn btn-ghost btn-sm" id="clear-btn">기록 지우기</button>
       </div>
     </section>
