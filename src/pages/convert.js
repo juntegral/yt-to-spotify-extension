@@ -469,19 +469,23 @@ function motionLayer() {
     hero.addEventListener("pointerleave", () => { cancelAnimationFrame(frame); collage.classList.remove("lit"); collage.style.transform = ""; });
   });
 }
-let io = null;
+// 스크롤 등장을 "항상 표시" 방식으로 변경(숨김 고착 버그 방지).
+// 구버전 버그: renderReviewList·renderNotFoundList가 각각 observeReveal을 호출하며
+// IntersectionObserver를 disconnect → 앞서 관찰하던 검토 카드가 관찰 대상에서 빠져
+// opacity:0에 고착 → "확인 필요" 카드가 통째로 안 보였음(헤더만 표시).
 function observeReveal() {
-  if (reduceMotion.matches || !("IntersectionObserver" in window)) return;
-  if (io) io.disconnect();
-  io = new IntersectionObserver((ents) => {
-    ents.forEach((en) => { if (en.isIntersecting) { en.target.classList.add("in"); io.unobserve(en.target); } });
-  }, { rootMargin: "0px 0px -8% 0px", threshold: 0.06 });
-  document.querySelectorAll("#review-list .rcard, #notfound-list .rcard").forEach((card, i) => {
+  const sel = "#review-list .rcard, #notfound-list .rcard";
+  const cards = document.querySelectorAll(sel);
+  if (reduceMotion.matches) { cards.forEach((c) => c.classList.add("in")); return; }
+  cards.forEach((card, i) => {
     if (card.classList.contains("reveal")) return;
     card.classList.add("reveal");
     card.style.transitionDelay = Math.min(i, 6) * 55 + "ms";
-    io.observe(card);
   });
+  // 다음 프레임에 .in 부여 → CSS 트랜지션으로 스태거 등장(스크롤/옵서버 의존 없이 항상 표시)
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.querySelectorAll(sel).forEach((c) => c.classList.add("in"));
+  }));
 }
 /* 목록이 다시 그려질 때마다 reveal 재관찰 */
 const _origRR = renderReviewList, _origNF = renderNotFoundList;
