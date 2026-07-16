@@ -114,28 +114,58 @@ async function saveTokens(t) {
   await chrome.storage.local.set(data);
 }
 
+// 회전식 리프레시 토큰: Spotify는 갱신 때마다 새 리프레시 토큰을 발급하고 직전 것을 폐기한다.
+// 동시에 두 번 갱신하면 한 쪽이 이미 폐기된 토큰을 써서 토큰 패밀리 전체가 무효화됨
+// → 이후 모든 갱신이 400 invalid_grant로 실패("리프레시가 안된다" 반복 루프의 원인).
+// 대응: (1) 갱신을 단일 in-flight 프로미스로 직렬화, (2) 400이면 저장 세션을 비워 깨끗한 재연결 유도.
+let refreshInFlight = null;
+
 async function getAccessToken() {
   const { accessToken, expiresAt, refreshToken } =
     await chrome.storage.local.get(['accessToken', 'expiresAt', 'refreshToken']);
-  if (!accessToken) throw new Error('Spotify 미연결');
-  if (Date.now() < (expiresAt || 0)) return accessToken;
-  if (!refreshToken) throw new Error('세션 만료 — 다시 연결해주세요');
-  const res = await fetch(SPOTIFY.tokenUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token', refresh_token: refreshToken, client_id: SPOTIFY.clientId,
-    }),
-  });
-  if (!res.ok) throw new Error('토큰 갱신 실패: ' + res.status);
+  if (accessToken && Date.now() < (expiresAt || 0)) return accessToken;
+  if (!refreshToken) throw new Error(accessToken ? '세션 만료 — 다시 연결해주세요' : 'Spotify 미연결');
+  // 진행 중 갱신이 있으면 그 결과를 공유 (동시 호출이 회전 토큰을 이중 사용하지 않게)
+  if (!refreshInFlight) {
+    refreshInFlight = refreshAccessToken(refreshToken).finally(() => { refreshInFlight = null; });
+  }
+  return refreshInFlight;
+}
+
+async function refreshAccessToken(refreshToken) {
+  let res;
+  try {
+    res = await fetch(SPOTIFY.tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token', refresh_token: refreshToken, client_id: SPOTIFY.clientId,
+      }),
+    });
+  } catch (e) {
+    throw new Error('토큰 갱신 네트워크 오류 — 잠시 후 다시 시도해주세요');
+  }
+  if (!res.ok) {
+    // 400 invalid_grant = 리프레시 토큰 폐기됨(반복 테스트/이중 사용/회수).
+    // 저장 토큰을 비워 "연결됨인데 영원히 실패"하는 상태를 끊고 재연결 UI로 떨어뜨린다.
+    if (res.status === 400) {
+      await chrome.storage.local.remove(['accessToken', 'refreshToken', 'expiresAt', 'spotifyProfile']);
+      throw new Error('세션이 만료되어 연결이 해제됐어요 — 다시 연결해주세요');
+    }
+    throw new Error('토큰 갱신 실패: ' + res.status);
+  }
   const t = await res.json();
   await saveTokens(t);
   return t.access_token;
 }
 
 async function getAuthState() {
-  const { spotifyProfile, accessToken } = await chrome.storage.local.get(['spotifyProfile', 'accessToken']);
-  return { connected: !!accessToken, profile: spotifyProfile || null };
+  const { spotifyProfile, accessToken, expiresAt, refreshToken } =
+    await chrome.storage.local.get(['spotifyProfile', 'accessToken', 'expiresAt', 'refreshToken']);
+  // 액세스 토큰이 아직 유효하거나, 만료됐어도 갱신 수단(리프레시 토큰)이 있으면 연결로 본다.
+  // 만료 + 리프레시 없음 = 실질 미연결 → API 호출 없이 로컬에서 판정(할당량 보호).
+  const connected = !!accessToken && (Date.now() < (expiresAt || 0) || !!refreshToken);
+  return { connected, profile: spotifyProfile || null };
 }
 async function disconnectSpotify() {
   await chrome.storage.local.remove(['accessToken', 'refreshToken', 'expiresAt', 'spotifyProfile']);
