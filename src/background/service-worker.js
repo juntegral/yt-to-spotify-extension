@@ -493,6 +493,7 @@ async function runConvert(video) {
     const entry = video.tracks[i];
     const item = {
       id: 'e' + i,
+      slot: i, // 원래 트랙리스트 순서(검토 곡을 원위치에 삽입하기 위함)
       label: entry.label || `${entry.artistGuess || ''} - ${entry.titleGuess || ''}`,
       time: entry.time || null,
     };
@@ -550,6 +551,13 @@ async function uniquePlaylistName(base) {
 
 // ============ 검토/수동 추가 ============
 
+// 트랙리스트 원위치 슬롯(작을수록 앞). 명시적 slot 우선, 없으면 id 'e{n}'에서 파싱.
+function slotOf(item) {
+  if (item && typeof item.slot === 'number') return item.slot;
+  const m = /^e(\d+)$/.exec((item && item.id) || '');
+  return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+}
+
 async function resolveReview(itemId, uri) {
   const { convertState: st } = await chrome.storage.local.get('convertState');
   if (!st || !st.playlistId) throw new Error('진행 중인 변환 결과가 없습니다');
@@ -559,15 +567,21 @@ async function resolveReview(itemId, uri) {
   const item = (st[from] || []).find((x) => x.id === itemId);
   if (!item) throw new Error('항목을 찾을 수 없습니다');
 
+  let insertPos = null;
   if (uri) {
-    await apiPost(`/playlists/${st.playlistId}/items`, { uris: [uri] }); // 2026-02 이관
-    st.added.push({ ...item, resolvedUri: uri });
+    // 유튜브 트랙리스트 순서 유지: 추가한 순서가 아니라 "원래 순서"대로 쌓이도록,
+    // 이미 추가된 곡 중 원위치가 앞선 것들 바로 뒤(=원위치)에 삽입한다.
+    st.added = st.added || [];
+    const slot = slotOf(item);
+    insertPos = st.added.filter((x) => slotOf(x) < slot).length;
+    await apiPost(`/playlists/${st.playlistId}/items`, { uris: [uri], position: insertPos }); // 2026-02 이관 (position: 0-based)
+    st.added.splice(insertPos, 0, { ...item, resolvedUri: uri }); // 재생목록 순서를 st.added에도 미러링
   } else {
     (st.skipped = st.skipped || []).push(item);
   }
   st.review = (st.review || []).filter((x) => x.id !== itemId);
   st.notFound = (st.notFound || []).filter((x) => x.id !== itemId);
-  st.lastResolve = { itemId, uri: uri || null, from }; // 되돌리기 1단계
+  st.lastResolve = { itemId, uri: uri || null, from, pos: insertPos }; // 되돌리기 1단계
   await chrome.storage.local.set({ convertState: st });
   return st;
 }
