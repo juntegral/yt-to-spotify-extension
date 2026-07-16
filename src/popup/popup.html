@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko" data-service="spotify" data-state="disconnected">
+<html lang="ko" data-service="spotify" data-state="loading">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -160,7 +160,15 @@ html[data-state="running"]      [data-show]:not([data-show~="running"]),
 html[data-state="review"]       [data-show]:not([data-show~="review"]),
 html[data-state="disconnected"] [data-show]:not([data-show~="disconnected"]),
 html[data-state="empty"]        [data-show]:not([data-show~="empty"]),
+html[data-state="loading"]      [data-show]:not([data-show~="loading"]),
 html[data-state="error"]        [data-show]:not([data-show~="error"]) { display: none !important; }
+
+/* ═══ 준비 화면 (첫 페인트 — 현재 탭 스캔 중) ═══ */
+.load-ph { background: rgba(255,255,255,.06) !important; animation: loadPulse 1.1s ease-in-out infinite; }
+.load-line { height: 11px; border-radius: 6px; background: rgba(255,255,255,.07); animation: loadPulse 1.1s ease-in-out infinite; margin-bottom: 8px; }
+.load-txt { font-size: 11px; color: var(--t3); margin-top: 5px; }
+.chip:empty { display: none; } /* 스캔 전 빈 칩은 렌더하지 않음 */
+@keyframes loadPulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
 
 /* ═══════════════════ 3. 브랜드 헤더 ═══════════════════ */
 .hd { display: flex; align-items: center; gap: 9px; position: relative; }
@@ -486,24 +494,37 @@ html[data-service="apple"] .error-panel { border-color: rgb(192 36 74 / .3); bac
     </div>
   </section>
 
+  <!-- ═══════ 준비 화면 (현재 탭 스캔 중 — 첫 페인트 전용) ═══════ -->
+  <div class="lbl rise-1 rise" data-show="loading"><span>감지된 영상</span></div>
+  <section class="panel video rise-1 rise" data-show="loading" aria-live="polite">
+    <div class="video-row">
+      <div class="thumb load-ph"></div>
+      <div class="video-meta">
+        <div class="load-line" style="width:86%"></div>
+        <div class="load-line" style="width:54%; animation-delay:.15s"></div>
+        <div class="load-txt">현재 탭의 영상을 확인하는 중…</div>
+      </div>
+    </div>
+  </section>
+
   <!-- ═══════ 감지된 영상 카드 ═══════ -->
-  <div class="lbl rise-1 rise"><span>감지된 영상</span></div>
-  <section class="panel video rise-1 rise">
+  <div class="lbl rise-1 rise" data-show="ready running review disconnected empty error"><span>감지된 영상</span></div>
+  <section class="panel video rise-1 rise" data-show="ready running review disconnected empty error">
     <div class="video-row">
       <div class="thumb">
         <img id="thumb-img" alt="" hidden />
-        <span class="dur num">1:12:48</span>
+        <span class="dur num"></span>
       </div>
       <div class="video-meta">
-        <div class="video-title" id="video-title">별이 쏟아진 날 · 새벽에 듣기좋은 잔잔한 우타이테/일본노래 모음</div>
-        <div class="video-sub"><span id="video-channel">노른자</span><span class="chip num">16곡 감지</span></div>
+        <div class="video-title" id="video-title"></div>
+        <div class="video-sub"><span id="video-channel"></span><span class="chip num"></span></div>
       </div>
     </div>
 
     <!-- 연결됨 (ready·running·review·empty) -->
     <div class="connect" data-show="ready running review empty">
       <span class="st-dot" aria-hidden="true"></span>
-      <span class="connect-txt"><b><span class="sp-only">Spotify</span><span class="ap-only">Apple Music</span></b> 연결됨 · ACAね</span>
+      <span class="connect-txt"><b><span class="sp-only">Spotify</span><span class="ap-only">Apple Music</span></b> 연결됨</span>
       <button type="button" class="btn btn-ghost btn-xs" id="disconnect-btn">해제</button>
     </div>
     <!-- 미연결 (disconnected·error) -->
@@ -517,7 +538,7 @@ html[data-service="apple"] .error-panel { border-color: rgb(192 36 74 / .3); bac
 
   <!-- ═══════ 트랙리스트 미리보기 ═══════ -->
   <div class="lbl rise-2 rise" data-show="ready running review">
-    <span>트랙리스트 · <span class="num">16곡</span></span><span class="fill"></span><span class="meta num">1:12:48</span>
+    <span>트랙리스트</span><span class="fill"></span><span class="meta num"></span>
   </div>
   <section class="panel tracklist rise-2 rise" data-show="ready running review">
     <div class="tracklist-scroll" id="track-list" tabindex="0" aria-label="감지된 트랙 16곡">

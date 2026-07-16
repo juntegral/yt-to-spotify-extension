@@ -72,16 +72,28 @@ const urisOf = (a) => a.map((x) => x.resolvedUri || (x.track && x.track.uri));
     skipped: [],
   });
 
-  console.log('A) 생성 전 검토 해소 = 로컬만 (Spotify 호출 0회), 슬롯 순서 유지');
+  console.log('A) 생성 전 검토 해소 = 로컬만 (Spotify 호출 0회), 슬롯 순서 유지 + 아트 보존');
   {
     const { sandbox, storage, calls } = load(base());
-    await sandbox.resolveReview('e3', 'u3'); // 뒤죽박죽 순서로
-    await sandbox.resolveReview('e1', 'u1');
+    await sandbox.resolveReview('e3', 'u3', { uri: 'u3', name: '祝祭', image: 'https://img/art3.jpg', artists: ['RADWIMPS'], durationMs: 301000 });
+    await sandbox.resolveReview('e1', 'u1'); // track 미전달 → 후보 목록에서 복원 시도(후보 없음 → undefined)
     await sandbox.resolveReview('e7', 'u7');
     ok(calls.length === 0, 'fetch 0회 (재생목록 없음 → 전부 로컬)');
     const st = storage._get('convertState');
     ok(JSON.stringify(urisOf(st.added)) === JSON.stringify(['u0', 'u1', 'u2', 'u3', 'u4', 'u7']),
       'added가 원래 순서로 축적 → ' + urisOf(st.added).join(','));
+    const e3 = st.added.find((x) => x.id === 'e3');
+    ok(e3.track && e3.track.image === 'https://img/art3.jpg', '선택 후보의 앨범아트가 added에 저장됨');
+  }
+
+  console.log("A') track 미전달 시 후보 목록에서 uri로 복원");
+  {
+    const withCand = base();
+    withCand.review[0] = { id: 'e1', candidates: [{ uri: 'u1', name: 'なんでもないや', image: 'https://img/art1.jpg' }] };
+    const { sandbox, storage } = load(withCand);
+    await sandbox.resolveReview('e1', 'u1'); // track 안 넘김
+    const e1 = storage._get('convertState').added.find((x) => x.id === 'e1');
+    ok(e1.track && e1.track.image === 'https://img/art1.jpg', '후보 목록에서 track 자동 복원');
   }
 
   console.log('B) 생성 전 되돌리기 = 로컬만 (DELETE 없음)');

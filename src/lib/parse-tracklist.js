@@ -117,6 +117,18 @@ function parseChapterList(chapters) {
   });
 }
 
+// 댓글 텍스트 배열(노출 순서 = 고정 댓글이 항상 첫 번째) → 트랙리스트.
+// "곡 순서·타임스탬프는 댓글 확인" 패턴 대응: 앞쪽 댓글부터 설명란 파서를 돌려
+// 처음으로 타임스탬프 3개 이상이 나오는 댓글을 트랙리스트로 채택.
+function tracklistFromComments(commentTexts) {
+  if (!Array.isArray(commentTexts)) return [];
+  for (const text of commentTexts.slice(0, 10)) {
+    const rows = parseDescriptionTracklist(String(text || ''));
+    if (rows.length >= 3) return rows.map((r) => ({ ...r, source: 'comment' }));
+  }
+  return [];
+}
+
 // 유튜브 자동감지 음악카드 [{title, artist, album}] → 트랙리스트(타임스탬프 없음)
 function tracksFromMusicCards(cards) {
   if (!Array.isArray(cards) || !cards.length) return [];
@@ -133,6 +145,7 @@ function tracksFromMusicCards(cards) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     parseDescriptionTracklist, toSeconds, cleanLabel, splitArtistTitle,
-    parseChapterList, tracksFromMusicCards, stripTrackIndex, secToClock, looksNonSong,
+    parseChapterList, tracksFromMusicCards, tracklistFromComments,
+    stripTrackIndex, secToClock, looksNonSong,
   };
 }

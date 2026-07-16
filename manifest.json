@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube → Spotify 변환기",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsXOzZ99abG2lZ5tj2DPzyDKBmOCqxdJ7FOirrfrxm7KX3tYEzDV16rVTn6vGYh3+vde/eCPyqmz6YoJBY3GuCWr2o2rwWwmP8ePVP/Snjy9HgG9FcXm6bbmbIUVwPAIcJySBcbLUmLXbEbXJTGSUQIujr0x9O8Lia736HcetGd4U7YAZfTXA8QcQWpgoTAPoZZMPVsk4bTRD6cKqvHI0KahG99hQYSuD6EQhgkMsSqZndB1Pj1mx1K31DPM7y6vqWtwPvQgQfm0g+H0T04Mois0fy5+7xvDYNzTWOdSI6XD4Vdw2Dk1VfAOhJIgvR8l7ZmbnIoTCVygVkYG+WrduuQIDAQAB",
   "description": "유튜브 '노래 모음' 영상의 트랙리스트를 읽어 같은 이름의 Spotify 재생목록으로 변환합니다.",
   "action": {

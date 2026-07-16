@@ -104,6 +104,7 @@ function render(st) {
   if (!st) { renderEmpty(); return; }
 
   const title = st.videoTitle || "변환";
+  document.title = (st.videoTitle ? st.videoTitle + " — " : "") + "MIXTAPE 변환"; // 탭 제목 = 실제 영상
   // 헤더 타이틀
   const added = st.added || [], review = st.review || [], notFound = st.notFound || [];
   const total = st.total || (added.length + review.length + notFound.length);
@@ -292,7 +293,8 @@ function candEl(c, onAdd) {
     hit.textContent = " · 길이 일치";
     cand.querySelector(".sub").appendChild(hit);
   }
-  cand.querySelector(".add-btn").addEventListener("click", (e) => { e.stopPropagation(); onAdd(v.uri); });
+  // 후보의 원본 데이터(앨범아트 포함)를 함께 넘겨 추가 후에도 아트·메타가 유지되게
+  cand.querySelector(".add-btn").addEventListener("click", (e) => { e.stopPropagation(); onAdd(v.uri, c.track || c); });
 
   // 행 클릭 → Spotify 임베드 미리듣기 토글
   const holder = document.createElement("div");
@@ -360,7 +362,7 @@ function reviewCardEl(item) {
   const n = (item.candidates || []).length;
   const card = baseCard(item, `YOUTUBE 원본 ${SVG.arrow} <span class="sp-only">SPOTIFY 후보 ${n}</span>`);
   const body = card.querySelector(".body");
-  const onAdd = (uri) => resolve(item.id, uri);
+  const onAdd = (uri, track) => resolve(item.id, uri, track);
 
   const cands = document.createElement("div");
   cands.className = "cands";
@@ -389,7 +391,7 @@ function notFoundCardEl(item) {
   micro.textContent = pre ? `후보 ${pre}곡 · 확인 필요` : "트랙리스트 원문 · 일치 결과 없음";
   card.querySelector(".tick").style.background = "var(--t3)";
   const body = card.querySelector(".body");
-  const onAdd = (uri) => resolve(item.id, uri);
+  const onAdd = (uri, track) => resolve(item.id, uri, track);
 
   const results = document.createElement("div");
   results.className = "nf-results";
@@ -435,8 +437,8 @@ async function doSearch(query, sbtn, resultsBox, onAdd, itemId) {
 }
 
 /* ───────── resolve / undo ───────── */
-async function resolve(itemId, uri) {
-  const r = await send({ type: "RESOLVE_REVIEW", itemId, uri });
+async function resolve(itemId, uri, track) {
+  const r = await send({ type: "RESOLVE_REVIEW", itemId, uri, track: track || null });
   if (r && r.ok) {
     render(r.state);
     const name = uri ? (findAddedName(r.state, itemId)) : null;
@@ -477,8 +479,8 @@ function wireReset() {
     const created = !!(lastState && (lastState.playlistId || lastState.playlistUrl));
     const p = modal.querySelector("p");
     if (p) p.innerHTML = created
-      ? '지금까지의 진행상태(추가·검토·건너뛴 곡)를 모두 지우고, <b>이번 변환으로 만든 스포티파이 재생목록도 라이브러리에서 제거</b>합니다. 되돌릴 수 없어요.'
-      : '지금까지의 진행상태(선택·검토·건너뛴 곡)를 모두 지웁니다. 재생목록은 아직 만들어지지 않아서 <b>스포티파이에는 아무 변화가 없어요</b>.';
+      ? '지금까지의 진행상태(추가·검토·건너뛴 곡)와 <b>검색 캐시를 모두 지우고</b>, <b>이번 변환으로 만든 스포티파이 재생목록도 라이브러리에서 제거</b>합니다. 다시 실행하면 완전히 처음부터 시작해요. 되돌릴 수 없어요.'
+      : '지금까지의 진행상태(선택·검토·건너뛴 곡)와 <b>검색 캐시를 모두 지웁니다</b>. 다시 실행하면 완전히 처음부터 시작해요. 재생목록은 아직 만들어지지 않아서 스포티파이에는 아무 변화가 없어요.';
     const go2 = $("reset-do");
     if (go2) go2.textContent = created ? "초기화하고 재생목록 제거" : "초기화";
     modal.classList.add("on");

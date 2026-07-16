@@ -42,14 +42,13 @@ async function handleMessage(message, sender) {
     case 'CREATE_PLAYLIST':
       return { ok: true, state: await createPlaylist() };
     case 'RESOLVE_REVIEW':
-      return { ok: true, state: await resolveReview(message.itemId, message.uri) };
+      return { ok: true, state: await resolveReview(message.itemId, message.uri, message.track) };
     case 'UNDO_RESOLVE':
       return { ok: true, state: await undoResolve() };
     case 'MANUAL_SEARCH':
       return { ok: true, results: await manualSearch(message.query, message.itemId) };
     case 'CLEAR_CONVERT':
-      await chrome.storage.local.remove(['convertState', 'convertTabId']);
-      await setBadge('');
+      await clearLocalData();
       return { ok: true };
     case 'RESET_CONVERT':
       return { ok: true, ...(await resetConvert()) };
@@ -578,7 +577,7 @@ function slotOf(item) {
   return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
 }
 
-async function resolveReview(itemId, uri) {
+async function resolveReview(itemId, uri, track) {
   const { convertState: st } = await chrome.storage.local.get('convertState');
   if (!st || st.status !== 'done') throw new Error('진행 중인 변환 결과가 없습니다');
 
@@ -586,6 +585,10 @@ async function resolveReview(itemId, uri) {
   const from = inReview ? 'review' : 'notFound';
   const item = (st[from] || []).find((x) => x.id === itemId);
   if (!item) throw new Error('항목을 찾을 수 없습니다');
+
+  // 선택한 후보의 원본 데이터(앨범아트·이름·길이) 확보 — 없으면 후보 목록에서 uri로 복원.
+  // 이걸 added에 저장해야 자동 추가 곡처럼 아트/메타가 렌더된다.
+  if (uri && !track) track = ((item.candidates || []).find((c) => c.uri === uri)) || null;
 
   let insertPos = null;
   if (uri) {
@@ -599,7 +602,7 @@ async function resolveReview(itemId, uri) {
     if (st.playlistId) {
       await apiPost(`/playlists/${st.playlistId}/items`, { uris: [uri], position: insertPos }); // 2026-02 이관 (position: 0-based)
     }
-    st.added.splice(insertPos, 0, { ...item, resolvedUri: uri }); // 재생목록 순서를 st.added에도 미러링
+    st.added.splice(insertPos, 0, { ...item, resolvedUri: uri, track: track || undefined }); // 순서 미러링 + 아트/메타 보존
   } else {
     (st.skipped = st.skipped || []).push(item);
   }
@@ -629,7 +632,7 @@ async function undoResolve() {
     if (idx >= 0) { item = st.skipped[idx]; st.skipped.splice(idx, 1); }
   }
   if (item) {
-    const { resolvedUri, ...orig } = item; // resolvedUri 제거하고 원래 리스트로 복원
+    const { resolvedUri, track, ...orig } = item; // resolvedUri·track 제거하고 원래 리스트로 복원
     (st[lr.from] = st[lr.from] || []).unshift(orig);
   }
   st.lastResolve = null;
@@ -682,8 +685,18 @@ async function manualSearch(query, itemId) {
   return scored.sort((a, b) => (b._score || 0) - (a._score || 0)).slice(0, 10);
 }
 
-// 초기화: 이번 변환으로 만든 재생목록을 라이브러리에서 제거(팔로우 해제) + 로컬 상태 삭제.
-// 언팔로우는 best-effort — 이미 없거나 실패해도 로컬 상태는 반드시 초기화한다.
+// 로컬 데이터 전체 삭제: 변환 상태 + 검색 캐시(영구 spSearchCache·메모리 memCache).
+// 사용자가 초기화/기록 지우기를 누르는 건 보통 "뭔가 잘못됐을 때" — 캐시가 남으면
+// 재실행이 같은(오염됐을 수 있는) 결과를 재생산하므로 함께 비운다.
+async function clearLocalData() {
+  memCache.clear();
+  cachePromise = null; // 다음 loadCache가 저장소를 새로 읽게
+  await chrome.storage.local.remove(['convertState', 'convertTabId', 'spSearchCache']);
+  await setBadge('');
+}
+
+// 초기화: 이번 변환으로 만든 재생목록을 라이브러리에서 제거(팔로우 해제) + 로컬 전체 삭제.
+// 언팔로우는 best-effort — 이미 없거나 실패해도 로컬은 반드시 초기화한다.
 async function resetConvert() {
   const { convertState: st } = await chrome.storage.local.get('convertState');
   let playlistRemoved = false;
@@ -693,7 +706,6 @@ async function resetConvert() {
       playlistRemoved = true;
     } catch (e) { /* 이미 없거나 API 실패 → 로컬 초기화만 진행 */ }
   }
-  await chrome.storage.local.remove(['convertState', 'convertTabId']);
-  await setBadge('');
+  await clearLocalData();
   return { playlistRemoved };
 }

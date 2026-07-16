@@ -30,7 +30,7 @@ function currentVideoId() {
 
 async function extractVideoInfo() {
   const page = await getFreshPageData();
-  const tracks = extractTracks(page);
+  const tracks = await extractTracks(page);
   let musicCards = extractMusicCards(page.data); // 유튜브 자동 "음악" 섹션 (원제목·아티스트·앨범)
   // 트랙 자체가 음악카드에서 유래했으면 정렬용 카드는 불필요(중복 매칭 방지)
   if (tracks.length && tracks[0] && tracks[0].source === 'music-card') musicCards = [];
@@ -135,9 +135,10 @@ function extractChannel() {
   return (el?.textContent || '').trim();
 }
 
-// 소스 폴백 체인: 설명란 타임스탬프 → 유튜브 챕터 → 자동감지 음악카드 → DOM 음악섹션.
-// "트랙리스트 없는" 영상(챕터만 있거나 유튜브 자동감지만 되는 경우)도 커버(Method B).
-function extractTracks(page) {
+// 소스 폴백 체인: 설명란 타임스탬프 → 유튜브 챕터 → 고정/상단 댓글 → 자동감지 음악카드 → DOM.
+// 댓글 소스("타임스탬프는 댓글 확인" 패턴)가 잡히면 타임스탬프·순서·길이를 확보하면서
+// musicCards(원제목)는 정렬 소스로 함께 살아있어 정밀 매칭 콤보가 된다.
+async function extractTracks(page) {
   const fromDesc = extractDescriptionTracklist(page);
   if (fromDesc.length >= 3) return fromDesc;
 
@@ -145,11 +146,91 @@ function extractTracks(page) {
     const fromChapters = parseChapterList(extractChapters(page.data));
     if (fromChapters.length >= 3) return fromChapters;
   }
+  if (typeof tracklistFromComments === 'function') {
+    const fromComments = tracklistFromComments(await fetchTopComments(page));
+    if (fromComments.length >= 3) return fromComments;
+  }
   if (typeof tracksFromMusicCards === 'function') {
     const fromCards = tracksFromMusicCards(extractMusicCards(page.data));
     if (fromCards.length >= 1) return fromCards;
   }
   return extractMusicSection(); // 최후 보조(best-effort DOM)
+}
+
+// ---- 고정/상단 댓글: youtubei/v1/next 연속 요청 (same-origin, 페이지 자체 키 사용) ----
+
+// 신선한 ytInitialData에서 댓글 섹션의 continuation 토큰 찾기
+function findCommentsToken(data) {
+  let token = null;
+  (function walk(n) {
+    if (!n || typeof n !== 'object' || token) return;
+    if (Array.isArray(n)) { for (const x of n) { walk(x); if (token) return; } return; }
+    const isr = n.itemSectionRenderer;
+    if (isr && /comment/i.test(isr.sectionIdentifier || '')) {
+      (function dig(m) {
+        if (!m || typeof m !== 'object' || token) return;
+        if (Array.isArray(m)) { for (const x of m) { dig(x); if (token) return; } return; }
+        if (m.continuationCommand && m.continuationCommand.token) { token = m.continuationCommand.token; return; }
+        for (const k in m) { dig(m[k]); if (token) return; }
+      })(isr);
+      return;
+    }
+    for (const k in n) { walk(n[k]); if (token) return; }
+  })(data);
+  return token;
+}
+
+// 페이지 스크립트에서 INNERTUBE 키·클라이언트 버전 (ytcfg — 영상 바뀌어도 동일)
+function getInnertubeCfg() {
+  for (const s of document.querySelectorAll('script')) {
+    const t = s.textContent || '';
+    const k = t.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/);
+    if (k) {
+      const v = t.match(/"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"]+)"/);
+      return { key: k[1], version: (v && v[1]) || '2.20260101.00.00' };
+    }
+  }
+  return null;
+}
+
+// /next 응답에서 댓글 텍스트를 노출 순서대로 수집(고정 댓글이 항상 첫 번째).
+// 신형(commentEntityPayload)·구형(commentRenderer) 포맷 모두 지원.
+function commentTextsFromNext(json) {
+  const texts = [];
+  (function walk(n) {
+    if (!n || typeof n !== 'object') return;
+    if (Array.isArray(n)) { n.forEach(walk); return; }
+    const p = n.commentEntityPayload;
+    if (p && p.properties && p.properties.content && typeof p.properties.content.content === 'string') {
+      texts.push(p.properties.content.content);
+    }
+    const r = n.commentRenderer;
+    if (r && r.contentText) {
+      const t = r.contentText.simpleText || (r.contentText.runs || []).map((x) => x.text).join('');
+      if (t) texts.push(t);
+    }
+    for (const k in n) walk(n[k]);
+  })(json);
+  return texts;
+}
+
+async function fetchTopComments(page) {
+  try {
+    const token = findCommentsToken(page && page.data);
+    const cfg = getInnertubeCfg();
+    if (!token || !cfg) return [];
+    const res = await fetch(`${location.origin}/youtubei/v1/next?key=${encodeURIComponent(cfg.key)}&prettyPrint=false`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        context: { client: { clientName: 'WEB', clientVersion: cfg.version, hl: 'ko', gl: 'KR' } },
+        continuation: token,
+      }),
+    });
+    if (!res.ok) return [];
+    return commentTextsFromNext(await res.json());
+  } catch (e) { return []; }
 }
 
 // ---- 자동 "음악" 섹션: ytInitialData의 videoAttributeViewModel 카드 ----

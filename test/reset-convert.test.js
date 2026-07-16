@@ -24,7 +24,7 @@ function makeStorage(initial) {
 
 function load(convertState) {
   const NOW = Date.now();
-  const storage = makeStorage({ accessToken: 'tok', expiresAt: NOW + 100000, spotifyProfile: { id: 'me' }, convertState, convertTabId: 42 });
+  const storage = makeStorage({ accessToken: 'tok', expiresAt: NOW + 100000, spotifyProfile: { id: 'me' }, convertState, convertTabId: 42, spSearchCache: { 'track|10|q': { v: [], t: 1 } } });
   const calls = [];
   const sandbox = {
     console, URL, URLSearchParams, TextEncoder, AbortController, Promise, Object, Array, JSON, Math, Number, String, RegExp, Set, Date,
@@ -65,6 +65,7 @@ const ok = (c, m) => { if (c) { pass++; console.log('  ✓ ' + m); } else { fail
     ok(r.playlistRemoved === true, 'playlistRemoved=true (200 빈 본문에도 예외 없이)');
     ok(!storage._has('convertState'), 'convertState 삭제됨');
     ok(!storage._has('convertTabId'), 'convertTabId 삭제됨');
+    ok(!storage._has('spSearchCache'), '검색 캐시(spSearchCache)도 삭제됨');
   }
 
   // B) 재생목록 없음(초기 에러 등) → 언팔로우 안 함, 그래도 로컬 삭제
