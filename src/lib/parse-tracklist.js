@@ -55,16 +55,22 @@ function parseDescriptionTracklist(text) {
     });
   }
 
-  // 시간 오름차순만 유지(오탐 제거) + 중복 타임스탬프 제거
-  const seen = new Set();
+  // 타임스탬프를 "오름차순 연속 구간(run)"으로 나눠 가장 긴 구간을 트랙리스트로 채택.
+  // 단순 오름차순 필터는 서두의 잡음(예: 고정 댓글의 "[40:38] 광고 제거 안내")이
+  // 기준점이 되어 진짜 트랙리스트(00:00~)를 통째로 버리는 문제가 있었음.
+  const runs = [];
+  let cur = [];
   let lastSec = -1;
-  const out = [];
   for (const r of rows) {
-    if (seen.has(r.seconds) || r.seconds < lastSec) continue;
-    seen.add(r.seconds);
+    if (cur.length && r.seconds === lastSec) continue;          // 같은 초 중복은 건너뜀(run 유지)
+    if (cur.length && r.seconds < lastSec) { runs.push(cur); cur = []; } // 감소 → 새 run
+    cur.push(r);
     lastSec = r.seconds;
-    out.push(r);
   }
+  if (cur.length) runs.push(cur);
+  let out = runs.reduce((best, run) => (run.length > best.length ? run : best), []);
+  const seen = new Set(); // 전역 중복초 안전망
+  out = out.filter((r) => (seen.has(r.seconds) ? false : (seen.add(r.seconds), true)));
   out.forEach((r, i) => {
     r.index = i + 1;
     // 타임스탬프 간격 = 대략적 곡 길이 (마지막 곡은 불명 → null)

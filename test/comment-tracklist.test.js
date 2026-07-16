@@ -69,6 +69,16 @@ const dataWithComments = (vid) => ({
     ok(parse.tracklistFromComments(['ㅋㅋ', '최고']).length === 0, '트랙리스트 없으면 []');
   }
 
+  console.log("1') 실측 회귀 — 서두 잡음 타임스탬프('[40:38] 광고 제거')가 있어도 본 리스트 채택");
+  {
+    // 실제 고정 댓글 패턴: 안내문(큰 타임스탬프) 뒤에 00:00부터 시작하는 진짜 트랙리스트
+    const noisy = '광고 제거 ✖[40:38] 리플레이 버튼 🔁눌러주세요!\n\n' + TRACKLIST_TEXT + '\n17:00 마지막 곡 - 끝';
+    const t = parse.tracklistFromComments([noisy]);
+    ok(t.length === 5, `가장 긴 오름차순 구간 채택 → 5곡 (실제 ${t.length})`);
+    ok(t[0].seconds === 0 && /베텔게우스/.test(t[0].label), '1번 곡 = 00:00 유우리 - 베텔게우스');
+    ok(!t.some((x) => x.seconds === 2438), '잡음(40:38)은 리스트에서 제외');
+  }
+
   console.log('2) 통합(신형 commentEntityPayload) — 설명란·챕터 없음 → 댓글 소스 + musicCards 보존');
   {
     const nextResponse = { frameworkUpdates: { entityBatchUpdate: { mutations: [
