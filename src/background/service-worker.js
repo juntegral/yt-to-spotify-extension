@@ -15,19 +15,6 @@ const SPOTIFY = {
 
 async function handleMessage(message, sender) {
   switch (message.type) {
-    // --- 디버그 브리지 전용 (개발용 — 배포 전 externally_connectable와 함께 제거) ---
-    case 'PING':
-      return { ok: true, version: chrome.runtime.getManifest().version };
-    case 'DEBUG_RELOAD':
-      setTimeout(() => chrome.runtime.reload(), 150);
-      return { ok: true, reloading: true };
-    case 'GET_VIDEO_INFO': {
-      // 보낸 탭의 콘텐츠 스크립트에서 영상 정보 추출 (외부 디버그 요청용)
-      const tabId = sender && sender.tab && sender.tab.id;
-      if (tabId == null) return { ok: false, error: 'sender tab 없음' };
-      return { ok: true, info: await chrome.tabs.sendMessage(tabId, { type: 'GET_VIDEO_INFO' }) };
-    }
-    // --- 일반 ---
     case 'CONNECT_SPOTIFY':
       return { ok: true, profile: await connectSpotify() };
     case 'DISCONNECT_SPOTIFY':
@@ -64,8 +51,7 @@ function messageListener(message, sender, sendResponse) {
   return true; // 비동기 응답
 }
 chrome.runtime.onMessage.addListener(messageListener);
-// 디버그 브리지: youtube.com 페이지에서 확장 제어 (manifest externally_connectable)
-chrome.runtime.onMessageExternal.addListener(messageListener);
+// (디버그 브리지 제거됨 — v0.8.0 배포 준비: externally_connectable + onMessageExternal + PING/DEBUG_RELOAD)
 
 // ============ OAuth (PKCE) ============
 
@@ -391,6 +377,7 @@ async function setBadge(text, color) {
 }
 
 let converting = false;
+let cancelRequested = false; // 진행 중 초기화(중단) — 취소 후 상태 재기록(좀비) 방지
 
 function startConvert(video) {
   if (converting) return { ok: false, error: '이미 변환이 진행 중입니다' };
@@ -398,6 +385,7 @@ function startConvert(video) {
     return { ok: false, error: '트랙리스트가 없습니다' };
   }
   converting = true;
+  cancelRequested = false;
   // MV3 서비스 워커가 변환 도중 잠들지 않게 keepalive (20초 간격 API 핑)
   const keepalive = setInterval(() => { try { chrome.runtime.getPlatformInfo(() => {}); } catch (e) { /* noop */ } }, 20000);
   runConvert(video).catch(async (e) => {
@@ -457,6 +445,8 @@ async function matchMusicCard(card) {
 }
 
 async function runConvert(video) {
+  // 취소되면 이후 어떤 상태도 쓰지 않는다 (초기화 직후 좀비 상태 부활 방지)
+  const patch = async (p) => { if (cancelRequested) return; return patchState(p); };
   await chrome.storage.local.set({
     convertState: {
       status: 'running', videoTitle: video.title, videoUrl: video.url || null,
@@ -470,6 +460,7 @@ async function runConvert(video) {
   if (video.musicCards && video.musicCards.length) {
     const matches = [];
     for (const card of video.musicCards) {
+      if (cancelRequested) return; // 중단
       const m = await matchMusicCard(card);
       if (m) matches.push(m);
     }
@@ -496,6 +487,7 @@ async function runConvert(video) {
   // 1) 전 곡 매칭 (카드 배정 슬롯은 우선 처리)
   const auto = [], review = [], notFound = [];
   for (let i = 0; i < video.tracks.length; i++) {
+    if (cancelRequested) return; // 중단 — 이후 상태 기록 없음
     const entry = video.tracks[i];
     const item = {
       id: 'e' + i,
@@ -519,19 +511,20 @@ async function runConvert(video) {
       else if (r.tier === 'review') review.push({ ...item, candidates: r.candidates, score: r.score });
       else notFound.push({ ...item, candidates: r.candidates });
     }
-    await patchState({
+    await patch({
       processed: i + 1,
       added: auto, review, notFound,
     });
-    await setBadge(Math.round(((i + 1) / video.tracks.length) * 100) + '%');
+    if (!cancelRequested) await setBadge(Math.round(((i + 1) / video.tracks.length) * 100) + '%');
   }
+  if (cancelRequested) return;
 
   // 2) 재생목록은 여기서 만들지 않는다 — 지연 생성.
   //    중간에 끊기면 스포티파이에 반쪽짜리 재생목록(쓰레기값)이 남던 문제 방지.
   //    매칭 결과는 상태(added/review/notFound)에만 축적하고, 사용자가 검토를 마친 뒤
   //    '재생목록 만들기'를 누르면 createPlaylist()가 그 시점의 added 전체를
   //    원래 트랙리스트 순서로 한 번에 실어 생성한다.
-  await patchState({ status: 'done' });
+  await patch({ status: 'done' });
   await setBadge('✓');
 }
 
@@ -698,6 +691,7 @@ async function clearLocalData() {
 // 초기화: 이번 변환으로 만든 재생목록을 라이브러리에서 제거(팔로우 해제) + 로컬 전체 삭제.
 // 언팔로우는 best-effort — 이미 없거나 실패해도 로컬은 반드시 초기화한다.
 async function resetConvert() {
+  if (converting) cancelRequested = true; // 진행 중이면 중단 신호 (이후 상태 기록 차단)
   const { convertState: st } = await chrome.storage.local.get('convertState');
   let playlistRemoved = false;
   if (st && st.playlistId) {

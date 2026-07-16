@@ -137,13 +137,17 @@ function renderRunning(st, title, total) {
 function renderError(st) {
   const et = $("error-text");
   if (et) et.textContent = "변환 실패: " + (st.error || "알 수 없는 오류");
+}
+
+// 에러/빈 상태 공용 버튼 — 부팅 시 1회 배선.
+// (이전엔 renderError에서만 배선 → 상태 없이 직접 연 empty 화면에서 죽은 버튼이 됨)
+function wireErrorActions() {
   const act = document.querySelector('[data-show="error"] .act');
-  if (act && !act.dataset.wired) {
-    act.dataset.wired = "1";
-    const [reconnect, restart] = act.querySelectorAll("button");
-    if (reconnect) reconnect.addEventListener("click", async () => { await send({ type: "CONNECT_SPOTIFY" }); location.reload(); });
-    if (restart) restart.addEventListener("click", async () => { await send({ type: "CLEAR_CONVERT" }); window.close(); });
-  }
+  if (!act || act.dataset.wired) return;
+  act.dataset.wired = "1";
+  const [reconnect, restart] = act.querySelectorAll("button");
+  if (reconnect) reconnect.addEventListener("click", async () => { await send({ type: "CONNECT_SPOTIFY" }); location.reload(); });
+  if (restart) restart.addEventListener("click", async () => { await send({ type: "CLEAR_CONVERT" }); window.close(); });
 }
 
 function renderResult(st, title, total, added, review, notFound) {
@@ -475,14 +479,17 @@ function wireReset() {
   const modal = $("reset-modal");
   if (!modal) return;
   const open = () => {
-    // 지연 생성: 재생목록이 아직 없으면 경고 문구를 사실대로 완화
+    // 상황별 정직한 경고: 진행 중 / 생성 후 / 생성 전
     const created = !!(lastState && (lastState.playlistId || lastState.playlistUrl));
+    const running = !!(lastState && lastState.status === "running");
     const p = modal.querySelector("p");
-    if (p) p.innerHTML = created
+    if (p) p.innerHTML = running
+      ? '<b>진행 중인 변환을 중단</b>하고, 진행상태와 검색 캐시를 모두 지웁니다. 재생목록은 아직 만들어지지 않아서 스포티파이에는 아무 변화가 없어요.'
+      : created
       ? '지금까지의 진행상태(추가·검토·건너뛴 곡)와 <b>검색 캐시를 모두 지우고</b>, <b>이번 변환으로 만든 스포티파이 재생목록도 라이브러리에서 제거</b>합니다. 다시 실행하면 완전히 처음부터 시작해요. 되돌릴 수 없어요.'
       : '지금까지의 진행상태(선택·검토·건너뛴 곡)와 <b>검색 캐시를 모두 지웁니다</b>. 다시 실행하면 완전히 처음부터 시작해요. 재생목록은 아직 만들어지지 않아서 스포티파이에는 아무 변화가 없어요.';
     const go2 = $("reset-do");
-    if (go2) go2.textContent = created ? "초기화하고 재생목록 제거" : "초기화";
+    if (go2) go2.textContent = running ? "중단하고 초기화" : created ? "초기화하고 재생목록 제거" : "초기화";
     modal.classList.add("on");
   };
   const close = () => modal.classList.remove("on");
@@ -570,6 +577,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const undo = $("toast-undo");
   if (undo) undo.addEventListener("click", undoResolve);
   document.querySelectorAll(".js-create").forEach((b) => b.addEventListener("click", onCreatePlaylist));
+  wireErrorActions();
   wireReset();
 
   const st = await getState();
