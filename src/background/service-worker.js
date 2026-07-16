@@ -49,6 +49,8 @@ async function handleMessage(message, sender) {
       await chrome.storage.local.remove(['convertState', 'convertTabId']);
       await setBadge('');
       return { ok: true };
+    case 'RESET_CONVERT':
+      return { ok: true, ...(await resetConvert()) };
     default:
       return { ok: false, error: 'unknown message: ' + message.type };
   }
@@ -211,7 +213,10 @@ async function apiFetch(path, init, attempt) {
     } catch (e) { try { detail = (await res.text()).slice(0, 200); } catch (e2) { /* noop */ } }
     throw new Error(`Spotify API ${path.split('?')[0]} 실패: ${res.status}${detail ? ' — ' + detail : ''}`);
   }
-  return res.status === 201 || res.status === 200 ? res.json() : null;
+  if (res.status === 200 || res.status === 201) {
+    try { return await res.json(); } catch (e) { return null; } // 빈 본문(예: 언팔로우 200 No Content) 허용
+  }
+  return null;
 }
 const apiGet = (p) => apiFetch(p);
 const apiPost = (p, body) =>
@@ -614,4 +619,20 @@ async function undoResolve() {
 async function manualSearch(query) {
   if (!query || !query.trim()) return [];
   return spSearch(query.trim(), 'track', 10); // 이미 간소화된 형태
+}
+
+// 초기화: 이번 변환으로 만든 재생목록을 라이브러리에서 제거(팔로우 해제) + 로컬 상태 삭제.
+// 언팔로우는 best-effort — 이미 없거나 실패해도 로컬 상태는 반드시 초기화한다.
+async function resetConvert() {
+  const { convertState: st } = await chrome.storage.local.get('convertState');
+  let playlistRemoved = false;
+  if (st && st.playlistId) {
+    try {
+      await apiFetch(`/playlists/${st.playlistId}/followers`, { method: 'DELETE' }); // 언팔로우 = 라이브러리에서 제거
+      playlistRemoved = true;
+    } catch (e) { /* 이미 없거나 API 실패 → 로컬 초기화만 진행 */ }
+  }
+  await chrome.storage.local.remove(['convertState', 'convertTabId']);
+  await setBadge('');
+  return { playlistRemoved };
 }

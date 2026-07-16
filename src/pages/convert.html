@@ -229,6 +229,27 @@ html[data-service="apple"] .seg-knob { transform: translateX(calc(100% + 2px)); 
 .btn-xs { padding: 5px 12px; font-size: 10.5px; }
 .btn-sm { padding: 8px 16px; font-size: 11.5px; }
 .btn-md { padding: 11px 19px; font-size: 12.5px; font-weight: 800; }
+.btn-danger { background: var(--miss); color: #fff; }
+.btn-danger:hover { filter: brightness(1.06); transform: translateY(-1px); }
+
+/* 초기화 버튼(헤더) + 경고 모달 */
+.hd-reset { margin-left: 10px; flex-shrink: 0; padding: 6px 12px; font-size: 11px; font-weight: 700;
+  letter-spacing: -.01em; color: var(--t2); background: transparent; border: 1px solid var(--line);
+  border-radius: 8px; cursor: pointer; transition: color var(--t-fast), border-color var(--t-fast); }
+.hd-reset:hover { color: var(--miss); border-color: var(--miss); }
+.scrim { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 24px;
+  background: rgba(0,0,0,.62); opacity: 0; pointer-events: none; transition: opacity var(--t-med); }
+.scrim.on { opacity: 1; pointer-events: auto; }
+.dialog { width: min(400px,100%); background: var(--card); border: 1px solid var(--card-line);
+  border-radius: var(--rad-l); padding: 23px 23px 19px; box-shadow: var(--sh-art);
+  transform: translateY(10px) scale(.985); transition: transform var(--t-med) var(--ease-pop); }
+.scrim.on .dialog { transform: none; }
+.dialog h3 { font-size: 16.5px; font-weight: 760; letter-spacing: -.02em; display: flex; align-items: center; gap: 9px; }
+.dialog h3 .warn-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--miss);
+  flex-shrink: 0; box-shadow: 0 0 0 4px rgba(228,88,106,.16); }
+.dialog p { color: var(--t2); font-size: 13.5px; line-height: 1.6; margin-top: 12px; }
+.dialog p b { color: var(--t1); font-weight: 650; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
 .eyebrow {
   font-size: 10.5px; font-weight: 740; letter-spacing: .15em; text-transform: uppercase;
   color: var(--t3); transition: color var(--t-theme);
@@ -670,6 +691,7 @@ html[data-service="apple"] .toast-pill {
     <div class="hd-title"><span>별이 쏟아진 날 · <span class="num">16곡</span></span></div>
     <div class="hd-fill"></div>
     <div class="svc-badge" aria-label="변환 대상"><span class="dot dot-sp"></span>Spotify</div>
+    <button type="button" class="hd-reset" id="reset-btn" data-show="result complete" title="변환을 초기화하고 재생목록 제거">초기화</button>
   </div>
   <div class="hd-prog" id="hd-prog" aria-hidden="true"></div>
 </header>
@@ -879,7 +901,18 @@ html[data-service="apple"] .toast-pill {
   </div>
 </div>
 
-<!-- 프리뷰 전용 상태 스위처 — 프로덕션 빌드에서 제거 -->
+<!-- 초기화 경고 모달 -->
+<div class="scrim" id="reset-modal" role="dialog" aria-modal="true" aria-labelledby="reset-title">
+  <div class="dialog">
+    <h3 id="reset-title"><span class="warn-dot" aria-hidden="true"></span>변환을 초기화할까요?</h3>
+    <p>지금까지의 진행상태(추가·검토·건너뛴 곡)를 모두 지우고, <b>이번 변환으로 만든 스포티파이 재생목록도 라이브러리에서 제거</b>합니다. 되돌릴 수 없어요.</p>
+    <div class="dialog-actions">
+      <button type="button" class="btn btn-ghost btn-sm" id="reset-cancel">취소</button>
+      <button type="button" class="btn btn-danger btn-sm" id="reset-do">초기화하고 재생목록 제거</button>
+    </div>
+  </div>
+</div>
+
 <script src="convert.js"></script>
 </body>
 </html>

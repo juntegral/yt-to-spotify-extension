@@ -429,6 +429,26 @@ function showToast(msg, isErr) {
 }
 function hideToast() { const t = $("toast"); if (t) t.classList.remove("on"); }
 
+/* ───────── 초기화(리셋) — 경고 모달 → RESET_CONVERT ───────── */
+function wireReset() {
+  const modal = $("reset-modal");
+  if (!modal) return;
+  const open = () => modal.classList.add("on");
+  const close = () => modal.classList.remove("on");
+  const btn = $("reset-btn"); if (btn) btn.addEventListener("click", open);
+  const cancel = $("reset-cancel"); if (cancel) cancel.addEventListener("click", close);
+  modal.addEventListener("click", (e) => { if (e.target === modal) close(); }); // 스크림 여백 클릭 → 닫기
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && modal.classList.contains("on")) close(); });
+  const go = $("reset-do");
+  if (go) go.addEventListener("click", async () => {
+    const label = go.textContent;
+    go.disabled = true; go.textContent = "초기화 중…";
+    const r = await send({ type: "RESET_CONVERT" });
+    if (r && r.ok) { window.close(); } // 로컬 상태 삭제됨 → 탭 닫기
+    else { go.disabled = false; go.textContent = label; close(); showToast("초기화 실패: " + ((r && r.error) || "?"), true); }
+  });
+}
+
 /* ───────── 스티키 헤더 응축 + 읽기 레일 ───────── */
 const hd = $("hd"), hdProg = $("hd-prog");
 let hdRaf = 0;
@@ -498,6 +518,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (clear) clear.addEventListener("click", async () => { await send({ type: "CLEAR_CONVERT" }); window.close(); });
   const undo = $("toast-undo");
   if (undo) undo.addEventListener("click", undoResolve);
+  wireReset();
 
   const st = await getState();
   render(st);
